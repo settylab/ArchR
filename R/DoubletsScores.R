@@ -214,11 +214,12 @@ addDoubletScores <- function(
   LSIParams$verbose <- FALSE
   LSIParams$force  <- TRUE
   LSIParams$logFile <- logFile
-  proj <- tryCatch({
+  res <- tryCatch({
     do.call(addIterativeLSI, LSIParams)
   }, error = function(e){
     .logError(e, fn = "addIterativeLSI", info = prefix, errorList = list(ArrowFile = ArrowFile), logFile = logFile)
   })
+  proj <- res[[1]]
 
   #################################################
   # 3. Get LSI Partial Matrix For Simulation

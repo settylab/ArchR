@@ -47,6 +47,10 @@
 
       cv <- is.numeric(input)
 
+    }else if(vi == "infinite"){
+
+      cv <- is.infinite(input)
+
     }else if(vi == "vector"){
 
       cv <- is.vector(input)

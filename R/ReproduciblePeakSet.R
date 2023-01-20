@@ -622,6 +622,8 @@ addReproduciblePeakSet <- function(
 	distPeaks <- distanceToNearest(peakSummits, GenomicRanges::resize(geneAnnotation$genes, 1, "start"), ignore.strand = TRUE)
 	mcols(peaks)$distToGeneStart <- mcols(distPeaks)$distance
 	mcols(peaks)$nearestGene <- mcols(geneAnnotation$genes)$symbol[subjectHits(distPeaks)]
+	# Distance to the corresponding start
+	mcols(peaks)$distToGeneStart <- abs(start(peakSummits) - start(geneAnnotation$genes)[subjectHits(distPeaks)])
 	.logMessage("Annotating Peaks : Gene", logFile = logFile)
 	promoters <- extendGR(GenomicRanges::resize(geneAnnotation$genes, 1, "start"), upstream = promoterRegion[1], downstream = promoterRegion[2])
 	op <- overlapsAny(peakSummits, promoters, ignore.strand = TRUE)
