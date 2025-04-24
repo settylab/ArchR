@@ -9,7 +9,8 @@ plotMarkers(
   name = NULL,
   cutOff = "FDR <= 0.01 & abs(Log2FC) >= 0.5",
   plotAs = "Volcano",
-  scaleTo = 10^4
+  scaleTo = 10^4,
+  rastr = TRUE
 )
 }
 \arguments{
@@ -22,7 +23,30 @@ To see available options try \code{colnames(seMarker)}.}
 \code{cutoff} can contain any of the \code{assayNames} from \code{seMarker}.}
 
 \item{plotAs}{A string indicating whether to plot a volcano plot ("Volcano") or an MA plot ("MA").}
+
+\item{rastr}{A boolean value that indicates whether the plot should be rasterized using \code{ggrastr}. This does not rasterize
+lines and labels, just the internal portions of the plot.}
 }
 \description{
 This function will plot one group/column of a differential markers as an MA or Volcano plot.
+}
+\examples{
+
+#Get Test Project
+proj <- getTestProject()
+
+#Get Markers
+seMarker <- getMarkerFeatures(
+  ArchRProj = proj, 
+  useMatrix = "PeakMatrix", 
+  testMethod = "binomial", 
+  binarize = TRUE
+)
+
+#Plot Markers
+p <- plotMarkers(seMarker, name = "C1")
+
+#PDF
+plotPDF(p, name = "Marker-Plot", ArchRProj = proj)
+
 }

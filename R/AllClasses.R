@@ -1,5 +1,8 @@
 #' @useDynLib ArchR
 #' @importFrom Rcpp sourceCpp
+#' @importClassesFrom GenomicRanges GRanges
+#' @importFrom GenomicRanges GRanges
+#' @import data.table
 NULL
 
 setClassUnion("characterOrNull", c("character", "NULL"))
@@ -85,6 +88,15 @@ setMethod("show", "ArchRProject",
 #' genome information such as nucleotide information or chromosome sizes.
 #' @param showLogo A boolean value indicating whether to show the ascii ArchR logo after successful creation of an `ArchRProject`.
 #' @param threads The number of threads to use for parallel execution.
+#'
+#' @examples
+#'
+#' # Get Test Arrow
+#' arrow <- getTestArrow()
+#'
+#' # Create ArchR Project for Analysis
+#' proj <- ArchRProject(arrow)   
+#'
 #' @export
 ArchRProject <- function(
   ArrowFiles = NULL, 
@@ -207,6 +219,15 @@ ArchRProject <- function(
 #' This function will recover an ArchRProject if it has broken sampleColData or cellColData due to different versions of bioconductor s4vectors.
 #' 
 #' @param ArchRProj An `ArchRProject` object.
+#' 
+#' @examples
+#'
+#' # Get Test Project
+#' proj <- getTestProject()
+#'
+#' # Try to Recover ArchR Project
+#' proj <- recoverArchRProject(proj)
+#'
 #' @export
 recoverArchRProject <- function(ArchRProj){
 
@@ -227,6 +248,11 @@ recoverArchRProject <- function(ArchRProj){
       stop("Unrecognized object for DataFrame in sampleColData")
     }
   }
+
+  #Try to make sure that DataFrame matches currently loaded
+  #S4Vectors Package
+  ArchRProj@cellColData <- DataFrame(ArchRProj@cellColData)
+  ArchRProj@sampleColData <- DataFrame(ArchRProj@sampleColData)
 
   if(inherits(ArchRProj@peakSet, "GRanges")){
 
@@ -300,7 +326,7 @@ recoverArchRProject <- function(ArchRProj){
     })
 
     names(mdata) <- names(attr(DFO, "metadata"))
-    metadata(DF) <- mdata
+    S4Vectors::metadata(DF) <- mdata
 
   }
 
@@ -335,7 +361,7 @@ recoverArchRProject <- function(ArchRProj){
   })
 
   GR <- GRanges(seqnames = GRO@seqnames, ranges = GRO@ranges, strand = GRO@strand)
-  metadata(GR) <- GRO@metadata
+  S4Vectors::metadata(GR) <- GRO@metadata
   if(nrow(GRO@elementMetadata) > 0){
     mcols(GR) <- GRO@elementMetadata
   }
@@ -353,6 +379,24 @@ recoverArchRProject <- function(ArchRProj){
 #' background peaks) should be ignored when re-normalizing file paths. If set to `FALSE` loading of the `ArchRProject`
 #' will fail unless all components can be found.
 #' @param showLogo A boolean value indicating whether to show the ascii ArchR logo after successful creation of an `ArchRProject`.
+#' 
+#' @examples
+#'
+#' # Get Small PBMC Project Location
+#' zipProj <- file.path(system.file("testdata", package="ArchR"), "PBSmall.zip")
+#'
+#' # Copy to current directory
+#' file.copy(zipProj, basename(zipProj), overwrite = TRUE)
+#' 
+#' # Unzip
+#' unzip(basename(zipProj), overwrite = TRUE)
+#' 
+#' # Remove
+#' file.remove(basename(zipProj))
+#'
+#' # Load
+#' loadArchRProject("PBSmall")
+#'
 #' @export
 loadArchRProject <- function(
   path = "./", 
@@ -434,30 +478,43 @@ loadArchRProject <- function(
   #3. Background Peaks Paths
   if(!is.null(getPeakSet(ArchRProj))){
 
-    if(!is.null(metadata(getPeakSet(ArchRProj))$bgdPeaks)){
+    if(!is.null(S4Vectors::metadata(getPeakSet(ArchRProj))$bgdPeaks)){
 
-      bgdPeaksNew <- gsub(outputDir, outputDirNew, metadata(getPeakSet(ArchRProj))$bgdPeaks)
+      bgdPeaksNew <- gsub(outputDir, outputDirNew, S4Vectors::metadata(getPeakSet(ArchRProj))$bgdPeaks)
 
       if(!all(file.exists(bgdPeaksNew))){
         
         if(force){
           message("BackgroundPeaks do not exist in saved ArchRProject!")
-          metadata(ArchRProj@peakSet)$bgdPeaks <- NULL
+          S4Vectors::metadata(ArchRProj@peakSet)$bgdPeaks <- NULL
         }else{
           stop("BackgroundPeaks do not exist in saved ArchRProject!")
         }
 
       }else{
 
-        metadata(ArchRProj@peakSet)$bgdPeaks <- bgdPeaksNew
+        S4Vectors::metadata(ArchRProj@peakSet)$bgdPeaks <- bgdPeaksNew
 
       }    
 
     }
 
   }
+  
+  #4. Group Coverages
 
-  #4. Set Output Directory 
+  #update paths for group coverage files in project metadata
+  if(length(ArchRProj@projectMetadata$GroupCoverages) > 0) {
+    groupC <- length(ArchRProj@projectMetadata$GroupCoverages)
+    for(z in seq_len(groupC)){
+      zdata <- ArchRProj@projectMetadata$GroupCoverages[[z]]$coverageMetadata
+      zfiles <- gsub(outputDir, outputDirNew, zdata$File)
+      ArchRProj@projectMetadata$GroupCoverages[[z]]$coverageMetadata$File <- zfiles
+      stopifnot(all(file.exists(zfiles)))
+    }
+  }
+
+  #5. Set Output Directory 
 
   ArchRProj@projectMetadata$outputDirectory <- outputDirNew
 
@@ -480,6 +537,14 @@ loadArchRProject <- function(
 #' @param dropCells A boolean indicating whether to drop cells that are not in `ArchRProject` from corresponding Arrow Files.
 #' @param logFile The path to a file to be used for logging ArchR output.
 #' @param threads The number of threads to use for parallel execution.
+#' @examples
+#'
+#' # Get Small Test Project
+#' proj <- getTestProject()
+#'
+#' # Save
+#' saveArchRProject(proj)
+#'
 #' @export
 saveArchRProject <- function(
   ArchRProj = NULL,
@@ -569,51 +634,29 @@ saveArchRProject <- function(
       newProj@imputeWeights <- SimpleList()
     }
 
-    #Copy Other Folders 2 layers nested
+    #Copy Recursively
     message("Copying Other Files...")
     for(i in seq_along(oldFiles)){
-      
-      fin <- file.path(outDirOld, oldFiles[i])
-      fout <- file.path(outputDirectory, oldFiles[i])
-      message(sprintf("Copying Other Files (%s of %s): %s", i, length(oldFiles), basename(fin)))
-      
-      if(dir.exists(fin)){
-      
-        dir.create(file.path(outputDirectory, basename(fin)), showWarnings=FALSE)
-        fin2 <- list.files(fin, full.names = TRUE)
-      
-        for(j in seq_along(fin2)){
-      
-          if(dir.exists(fin2[j])){
-      
-            dir.create(file.path(outputDirectory, basename(fin), basename(fin2)[j]), showWarnings=FALSE)
-            fin3 <- list.files(fin2[j], full.names = TRUE)
-      
-            for(k in seq_along(fin3)){
-      
-              cf <- file.copy(fin3[k], file.path(fout, basename(fin3[k])), overwrite = overwrite)
-      
-            }
-      
-          }else{
-      
-            cf <- file.copy(fin2[j], file.path(fout, basename(fin2[j])), overwrite = overwrite)
-      
-          }
-      
-        }
-      
-      }else{
-      
-        cf <- file.copy(fin, fout, overwrite = overwrite)
-      
-      }
-
+      message(sprintf("Copying Other Files (%s of %s): %s", i, length(oldFiles), oldFiles[i]))
+      oldPath <- file.path(outDirOld, oldFiles[i])
+      file.copy(oldPath, outputDirectory, recursive=TRUE, overwrite=overwrite)
     }
 
+    #Set New Info
     newProj@sampleColData <- newProj@sampleColData[names(ArrowFilesNew), , drop = FALSE]
     newProj@sampleColData$ArrowFiles <- ArrowFilesNew[rownames(newProj@sampleColData)]
   
+    #Check for Group Coverages Copied
+    groupC <- length(newProj@projectMetadata$GroupCoverages)
+    if(length(groupC) > 0){
+      for(z in seq_len(groupC)){
+        zdata <- newProj@projectMetadata$GroupCoverages[[z]]$coverageMetadata
+        zfiles <- gsub(outDirOld, outputDirectory, zdata$File)
+        newProj@projectMetadata$GroupCoverages[[z]]$coverageMetadata$File <- zfiles
+        stopifnot(all(file.exists(zfiles)))
+      }
+    }
+
   }
 
   message("Saving ArchRProject...")
@@ -637,6 +680,15 @@ saveArchRProject <- function(
 #' @param logFile The path to a file to be used for logging ArchR output.
 #' @param threads The number of threads to use for parallel execution. 
 #' @param force If output directory exists overwrite.
+#' 
+#' @examples
+#'
+#' # Get Small Test Project
+#' proj <- getTestProject()
+#' 
+#' #Subset
+#' proj <- subsetArchRProject(proj, cells = getCellNames(proj)[1:50])
+#' 
 #' @export
 subsetArchRProject <- function(
   ArchRProj = NULL,
@@ -750,7 +802,8 @@ subsetArchRProject <- function(
   if(!missing(j)){
     message("Subsetting columns not supported this way to remove columns set them to NULL.\nEx. ArchRProj$Clusters <- NULL\nContinuing just with cell subsetting.")
   }
-  
+
+  i <- as.vector(i)
   if (is.logical(i)) {
     if (length(i) != nrow(cD)) {
       stop("Incorrect number of logical values provided to subset cells")
@@ -803,7 +856,6 @@ subsetArchRProject <- function(
   return(x)
 
 }
-
 
 setMethod(
   f = "colnames",

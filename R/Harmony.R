@@ -13,12 +13,26 @@
 #' to sequencing depth that is greater than the `corCutOff`, it will be excluded from analysis.
 #' @param name The name to store harmony output as a `reducedDims` in the `ArchRProject` object.
 #' @param groupBy The name of the column in `cellColData` to use for grouping cells together for vars in harmony batch correction.
+#' The value of `groupBy` is passed to the `vars_use` parameter in `harmony::HarmonyMatrix()`. When run through ArchR, this parameter
+#' defines which variables to correct for during batch correction. See `harmony::HarmonyMatrix()` for more information.
 #' @param verbose A boolean value indicating whether to use verbose output during execution of this function. Can be set to FALSE for a cleaner output.
 #' @param force A boolean value that indicates whether or not to overwrite data in a given column when the value passed to `name` already
 #' exists as a column name in `cellColData`.
 #' @param ... Additional arguments to be provided to harmony::HarmonyMatrix
 #' @export
+#' 
+#' @examples
 #'
+#' # Get Test ArchR Project
+#' proj <- getTestProject()
+#'
+#' # Add Confounder
+#' proj <- addCellColData(proj, data = proj$TSSEnrichment > 10, name = "TSSQC", cells = getCellNames(proj))
+#'
+#' # Run Harmony
+#' proj <- addHarmony(proj, groupBy = "TSSQC")
+#'
+#' @export
 addHarmony <- function(
   ArchRProj = NULL,
   reducedDims = "IterativeLSI",
@@ -48,7 +62,7 @@ addHarmony <- function(
     }
   }
 
-  .requirePackage("harmony", installInfo = 'devtools::install_github("immunogenomics/harmony")')
+  .requirePackage("harmony", source = "cran")
   harmonyParams <- list(...)
   harmonyParams$data_mat <- getReducedDims(
     ArchRProj = ArchRProj, 
@@ -66,7 +80,7 @@ addHarmony <- function(
   harmonyParams$plot_convergence <- FALSE
 
   #Call Harmony
-  harmonyMat <- do.call(HarmonyMatrix, harmonyParams)
+  harmonyMat <- suppressWarnings(do.call(HarmonyMatrix, harmonyParams))
   harmonyParams$data_mat <- NULL
   ArchRProj@reducedDims[[name]] <- SimpleList(
     matDR = harmonyMat, 
@@ -75,7 +89,6 @@ addHarmony <- function(
     scaleDims = NA, #Do not scale dims after
     corToDepth = NA
   )
-
   ArchRProj
 
 }

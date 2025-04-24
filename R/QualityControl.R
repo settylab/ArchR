@@ -17,6 +17,18 @@
 #' instead of plotting the TSS enrichment plot.
 #' @param threads An integer specifying the number of threads to use for calculation. By default this uses the number of threads set by `addArchRThreads()`.
 #' @param logFile The path to a file to be used for logging ArchR output.
+#' 
+#' @examples
+#'
+#' # Get Test ArchR Project
+#' proj <- getTestProject()
+#'
+#' # Plot TSS
+#' p <- plotTSSEnrichment(proj, groupBy = "Clusters")
+#'
+#' # PDF
+#' plotPDF(p, name = "TSS-Enrich", ArchRProj = proj)
+#'
 #' @export
 plotTSSEnrichment <- function(
   ArchRProj = NULL,
@@ -47,60 +59,97 @@ plotTSSEnrichment <- function(
 
   chr <- paste0(seqnames(chromSizes))
   chr <- gtools::mixedsort(intersect(chr, paste0(seqnames(TSS))))
+  .logThis(chr, paste0("chr"), logFile = logFile)
   TSS <- sort(sortSeqlevels(TSS))
-  splitTSS <- split(resize(TSS,1,"start"), seqnames(TSS))[chr]
+  splitTSS <- split(GenomicRanges::resize(TSS,1,"start"), seqnames(TSS))[chr]
+  .logThis(splitTSS, paste0("splitTSS"), logFile = logFile)
   window <- 2 * flank + 1
   groups <- getCellColData(ArchRProj = ArchRProj, select = groupBy, drop = FALSE)
   uniqGroups <- gtools::mixedsort(unique(groups[,1]))
 
-  if(threads > 1){
-     h5disableFileLocking()
+  #H5 File Lock Check
+  h5lock <- setArchRLocking()
+  if(h5lock){
+    if(threads > 1){
+      message("subThreading Disabled since ArchRLocking is TRUE see `addArchRLocking`")
+      threads <- 1
+    }
+  }else{
+    if(threads > 1){
+      message("subThreading Enabled since ArchRLocking is FALSE see `addArchRLocking`")
+    }    
   }
 
-  dfTSS <- .safelapply(seq_along(uniqGroups), function(x){
+  chromLengths <- getChromLengths(ArchRProj)
 
-    .logDiffTime(paste0(uniqGroups[x], " Computing TSS (",x," of ",length(uniqGroups),")!"), t1 = tstart, logFile = logFile)
+  dfTSS <- .safelapply(seq_along(uniqGroups), function(z){
 
-    cellx <- rownames(groups)[which(paste0(groups[,1]) == uniqGroups[x])]
+    .logDiffTime(paste0(uniqGroups[z], " Computing TSS (",z," of ",length(uniqGroups),")!"), t1 = tstart, logFile = logFile)
 
-    for(i in seq_along(chr)){
+    cellx <- rownames(groups)[which(paste0(groups[,1]) == uniqGroups[z])]
 
-      TSSi <- splitTSS[[chr[i]]]
+    for(k in seq_along(chr)){
 
-      covi <- unlist(suppressMessages(getFragmentsFromProject(
+      #TSS for Chr
+      TSSi <- splitTSS[[chr[k]]]
+
+      #Check All Positions Are at least 50 + flank from chromSize start!
+      idx1 <- start(TSSi) > flank + 50
+
+      #Check End + 50 + flank less than chromSize end!
+      idx2 <- end(TSSi) + flank + 50 < chromLengths[paste0(seqnames(TSSi))]
+
+      #Set TSS To be a dummy chr1
+      TSSi <- GRanges(seqnames=rep("chr1",length(TSSi)), ranges = ranges(TSSi), strand = strand(TSSi))
+      .logThis(TSSi, paste0(uniqGroups[z], " : TSSi : ", chr[k]), logFile = logFile)
+
+      #Extract Fragments
+      covi <- suppressMessages(getFragmentsFromProject(
         ArchRProj = ArchRProj,
-        subsetBy = chromSizes[paste0(seqnames(chromSizes)) %in% chr[i]],
+        subsetBy = chromSizes[paste0(seqnames(chromSizes)) %in% chr[k]],
         cellNames = cellx,
         logFile = logFile
-      )), use.names=FALSE) %>% 
-        sort %>% 
-          {coverage(IRanges(c(start(.), end(.)), width = 1))}
+      ) %>% unlist(use.names = FALSE))
+      .logThis(covi, paste0(uniqGroups[z], " : Fragments : ", chr[k]), logFile = logFile)
+     
+      #Get Insertions
+      covi <- sort(c(start(covi), end(covi)))
+      .logThis(covi, paste0(uniqGroups[z], " : Insertions : ", chr[k]), logFile = logFile)
 
-      .logThis(covi, paste0(uniqGroups[x], " : Cov : ", chr[i]), logFile = logFile)
+      #IRanges
+      covi <- IRanges(start = covi, width = 1)
+      .logThis(covi, paste0(uniqGroups[z], " : Insertions2 : ", chr[k]), logFile = logFile)
 
-      if(i == 1){
-        sumTSS <- rleSumsStranded(list(chr1=covi), list(chr1=TSSi), window, as.integer)
+      #Coverage
+      covi <- IRanges::coverage(covi)
+      .logThis(covi, paste0(uniqGroups[z], " : Cov : ", chr[k]), logFile = logFile)
+
+      #Compute Sum
+      sumTSSi <- rleSumsStranded(list(chr1=covi), list(chr1=TSSi), window, as.integer)
+      .logThis(sumTSSi, paste0(uniqGroups[z], " : SumTSS 1 : ", chr[k]), logFile = logFile)
+
+      if(k == 1){
+        sumTSS <- sumTSSi
       }else{
-        sumTSS <- sumTSS + rleSumsStranded(list(chr1=covi), list(chr1=TSSi), window, as.integer)
+        sumTSS <- sumTSS + sumTSSi
       }
-
-      .logThis(sumTSS, paste0(uniqGroups[x], " : SumTSS : ", chr[i]), logFile = logFile)
+      .logThis(sumTSS, paste0(uniqGroups[z], " : SumTSS : ", chr[k]), logFile = logFile)
 
     }
 
     normBy <- mean(sumTSS[c(1:norm,(flank*2-norm+1):(flank*2+1))])
 
     df <- DataFrame(
-      group = uniqGroups[x],
+      group = uniqGroups[z],
       x = seq_along(sumTSS) - flank - 1, 
       value = sumTSS, 
       normValue = sumTSS / normBy,
       smoothValue = .centerRollMean(sumTSS/normBy, 11)
     )
 
-    .logThis(df, paste0(uniqGroups[x], " : TSSDf"), logFile = logFile)
+    .logThis(df, paste0(uniqGroups[z], " : TSSDf"), logFile = logFile)
 
-    .logDiffTime(paste0(uniqGroups[x], " Finished Computing TSS (",x," of ",length(uniqGroups),")!"), t1 = tstart, logFile = logFile)
+    .logDiffTime(paste0(uniqGroups[z], " Finished Computing TSS (",z," of ",length(uniqGroups),")!"), t1 = tstart, logFile = logFile)
 
     df
 
@@ -109,10 +158,6 @@ plotTSSEnrichment <- function(
   .logThis(dfTSS, paste0("All : TSSDf"), logFile = logFile)
 
   .endLogging(logFile = logFile)
-
-  if(threads > 1){
-    h5enableFileLocking()
-  }
   
   if(returnDF){
     
@@ -156,6 +201,18 @@ plotTSSEnrichment <- function(
 #' instead of plotting the fragment size distribution.
 #' @param threads An integer specifying the number of threads to use for calculation. By default this uses the number of threads set by `addArchRThreads()`.
 #' @param logFile The path to a file to be used for logging ArchR output.
+#' 
+#' @examples
+#'
+#' # Get Test ArchR Project
+#' proj <- getTestProject()
+#'
+#' # Plot Frag Sizes
+#' p <- plotFragmentSizes(proj, groupBy = "Clusters")
+#'
+#' # PDF
+#' plotPDF(p, name = "Frag-Sizes", ArchRProj = proj)
+#'
 #' @export
 plotFragmentSizes <- function(
   ArchRProj = NULL,

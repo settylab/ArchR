@@ -42,5 +42,13 @@ is to retrieve this from the \code{ArchRProject} using \code{getBlacklist()}.}
 }
 \description{
 This function, for each sample, will independently compute counts for each tile
-per cell in the ArrowFile
+}
+\examples{
+
+# Get Test ArchR Project
+proj <- getTestProject()
+
+# Add Tile Matrix
+proj <- addTileMatrix(proj, force = TRUE, tileSize = 25000)
+
 }

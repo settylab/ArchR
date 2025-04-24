@@ -5,34 +5,87 @@
 ########################################################
 ArchRDefaults <- list(
   ArchR.threads = 1,
+  ArchR.locking = FALSE,
   ArchR.logging = TRUE,
+  ArchR.h5level = 0,
   ArchR.genome = NA,
   ArchR.chrPrefix = TRUE,
   ArchR.debugging = FALSE,
   ArchR.verbose = TRUE
 )
 
+ArchRDependency <- c(
+  "devtools",
+  "grid",
+  "gridExtra",
+  "gtools",
+  "gtable",
+  "ggplot2",
+  "magrittr",
+  "plyr",
+  "stringr",
+  "data.table",
+  "matrixStats",
+  "sparseMatrixStats",
+  "S4Vectors",
+  "GenomicRanges",
+  "BiocGenerics",
+  "Matrix",
+  "Rcpp",
+  "RcppArmadillo",
+  "SummarizedExperiment",
+  "rhdf5"
+)
+
 .onAttach <- function(libname, pkgname){
-  if(!interactive()) return()
-  v <- packageVersion("ArchR")
+
+  #Allow S3/S4 exports to be larger than 500 mb
+  options(future.globals.maxSize = 2097152000)
+  
+  #Logo
   .ArchRLogo()
+  
+  #Package Startup
+  v <- packageVersion("ArchR")
   packageStartupMessage("ArchR : Version ", v, "\nFor more information see our website : www.ArchRProject.com\nIf you encounter a bug please report : https://github.com/GreenleafLab/ArchR/issues")
+  
+  #Load Packages
+  packageStartupMessage("Loading Required Packages...")
+  pkgs <- ArchRDependency
+  for(i in seq_along(pkgs)){
+    packageStartupMessage("\tLoading Package : ", pkgs[i], " v", packageVersion(pkgs[i]))
+    tryCatch({
+      suppressPackageStartupMessages(require(pkgs[i], character.only=TRUE))
+    }, error = function(e){
+      packageStartupMessage("\tFailed To Load Package : ", pkgs[i], " v", packageVersion(pkgs[i]))
+    })
+  }
+
+  if(!interactive()) return()
+
+  #Set Default Options
   op <- options()
   toset <- !(names(ArchRDefaults) %in% names(op))
+  
   if (any(toset)) options(ArchRDefaults[toset])
+  
   if(!.isWholenumber(options()[["ArchR.threads"]])){
     addArchRThreads()
   }else if(options()[["ArchR.threads"]] == 1){
     addArchRThreads()
   }
+  
   if(!.checkCairo()){
     packageStartupMessage("WARNING : Cairo check shows Cairo is not functional.\n          ggplot2 rasterization will not be available without Cario.\n          This may cause issues editing plots with many thousands of points from single cells.")
   }
+  
   if(.checkJupyter()){
     packageStartupMessage("Detected Jupyer Notebook session. Disabling Log Messages!\n\tIf this is undesired use `addArchRVerbose(TRUE)`")
     addArchRVerbose(verbose = FALSE)
   }
+  
   invisible()
+
 }
 
 #Check Jupyer Status
@@ -57,6 +110,12 @@ ArchRDefaults <- list(
 #' This function will install extra packages used in ArchR that are not installed by default.
 #' 
 #' @param force If you want to force a reinstall of these pacakges.
+#' 
+#' @examples
+#'
+#' # Install
+#' installExtraPackages()
+#'
 #' @export
 installExtraPackages <- function(force = FALSE){
 
@@ -117,7 +176,7 @@ installExtraPackages <- function(force = FALSE){
   if(!requireNamespace("harmony", quietly = TRUE) || force){
     o <- tryCatch({
       message("Installing harmony..")
-      devtools::install_github('immunogenomics/harmony', repos = BiocManager::repositories())
+      install.packages("harmony")
       if(!requireNamespace("harmony", quietly = TRUE)){
         stop()
       }
@@ -126,7 +185,7 @@ installExtraPackages <- function(force = FALSE){
       f <- f + 1
       fp <- c(fp, "harmony")
       message("Error With harmony Installation")
-      message("Try devtools::install_github('immunogenomics/harmony', repos = BiocManager::repositories())")
+      message("Try install.packages('harmony')")
     })
   }
 
@@ -134,7 +193,7 @@ installExtraPackages <- function(force = FALSE){
   if(!requireNamespace("presto", quietly = TRUE) || force){
     o <- tryCatch({
       message("Installing presto..")
-      devtools::install_github('immunogenomics/presto', repos = BiocManager::repositories())
+      install.packages("presto")
       if(!requireNamespace("presto", quietly = TRUE)){
         stop()
       }
@@ -143,7 +202,7 @@ installExtraPackages <- function(force = FALSE){
       f <- f + 1
       fp <- c(fp, "presto")
       message("Error With presto Installation")
-      message("Try devtools::install_github('immunogenomics/presto', repos = BiocManager::repositories())")
+      message("Try install.packages('presto')")
     })
   }
 
@@ -217,6 +276,12 @@ installExtraPackages <- function(force = FALSE){
 #' This function will set the default requirement of chromosomes to have a "chr" prefix.
 #' 
 #' @param chrPrefix A boolean describing the requirement of chromosomes to have a "chr" prefix.
+#' 
+#' @examples
+#'
+#' # Add ArchR Chr Prefix
+#' addArchRChrPrefix()
+#'
 #' @export
 addArchRChrPrefix <- function(chrPrefix = TRUE){
   
@@ -236,6 +301,11 @@ addArchRChrPrefix <- function(chrPrefix = TRUE){
 #' 
 #' This function will get the default requirement of chromosomes to have a "chr" prefix.
 #' 
+#' @examples
+#'
+#' # Get ArchR Chr Prefix
+#' getArchRChrPrefix()
+#'
 #' @export
 getArchRChrPrefix <- function(){
   
@@ -266,6 +336,12 @@ getArchRChrPrefix <- function(){
 #' This can be overwritten on a per-function basis using the given function's `threads` parameter.
 #' @param force If you request more than the total number of CPUs minus 2, ArchR will set `threads` to `(nCPU - 2)`.
 #' To bypass this, setting `force = TRUE` will use the number provided to `threads`.
+#' 
+#' @examples
+#'
+#' # Add ArchR Threads
+#' addArchRThreads()
+#'
 #' @export
 addArchRThreads <- function(threads = floor(parallel::detectCores()/ 2), force = FALSE){
   
@@ -285,6 +361,9 @@ addArchRThreads <- function(threads = floor(parallel::detectCores()/ 2), force =
       threads <- parallel::detectCores()-2
     }
   }
+  if(threads > 1){
+    RNGkind("L'Ecuyer-CMRG")
+  }
   
   message("Setting default number of Parallel threads to ", threads, ".")
   options(ArchR.threads = as.integer(round(threads)))
@@ -295,6 +374,12 @@ addArchRThreads <- function(threads = floor(parallel::detectCores()/ 2), force =
 #' 
 #' This function will get the number of threads to be used for parallel execution across all ArchR functions.
 #' 
+#' 
+#' @examples
+#'
+#' # Get ArchR Threads
+#' getArchRThreads()
+#'
 #' @export
 getArchRThreads <- function(){
   .ArchRThreads <- options()[["ArchR.threads"]]
@@ -312,6 +397,141 @@ getArchRThreads <- function(){
 }
 
 ##########################################################################################
+# h5 compression level
+##########################################################################################
+
+#' Add a globally-applied compression level for h5 files
+#' 
+#' This function will set the default compression level to be used for h5 file execution across all ArchR functions.
+#' 
+#' @param level The default compression level to be used for h5 file execution across all ArchR functions.
+#' 
+#' @examples
+#'
+#' # Add ArchR H5 Compression level
+#' addArchRH5Level()
+#'
+#' @export
+addArchRH5Level <- function(level = 0){
+  
+  .validInput(input = level, name = "level", valid = "integer")
+  message("Setting default h5 compression to ", level, ".")
+  options(ArchR.h5level = as.integer(round(level)))
+
+}
+
+#' Get globally-applied compression level for h5 files
+#' 
+#' This function will get the default compression level to be used for h5 file execution across all ArchR functions.
+#' 
+#' @examples
+#'
+#' # Get ArchR H5 Compression level
+#' getArchRH5Level()
+#'
+#' @export
+getArchRH5Level <- function(){
+  .ArchRH5Level <- options()[["ArchR.h5level"]]
+  if(!is.null(.ArchRH5Level)){
+    if(!.isWholenumber(.ArchRH5Level)){
+      message("option(.ArchRH5Level) : ", .ArchRThreads, " is not an integer. \nDid you mistakenly set this to a value without addArchRH5Level? Reseting to default!")
+      addArchRH5Level()
+      options()[["ArchR.threads"]]
+    }else{
+      .ArchRH5Level
+    }
+  }else{
+    0
+  }
+}
+
+##########################################################################################
+# H5 File Locking
+##########################################################################################
+
+#' Add a globally-applied H5 file locking setup
+#' 
+#' This function will set the default H5 file locking parameters
+#' 
+#' @param locking The default value for H5 File Locking
+#' 
+#' @examples
+#'
+#' # Disable/Add ArchR H5 Locking Globally
+#' addArchRLocking(locking=FALSE)
+#'
+#' @export
+addArchRLocking <- function(locking=FALSE){
+  
+  .validInput(input = locking, name = "locking", valid = "boolean")
+
+  #Check if Locking is Valid
+  h5test <- h5testFileLocking(".")
+  if(!h5test){
+    message(
+      "H5 Locking is not enabled based on 'h5testFileLocking'.\nSetting ArchRLocking locking to ", 
+      locking, "."
+    )
+    locking <- TRUE
+  }else{
+    message("Setting ArchRLocking to ", locking, ".")
+  }
+  options(ArchR.locking = locking)
+
+}
+
+#' Set a globally-applied H5 file locking setup
+#' 
+#' This function will set the default H5 file locking parameters to the system
+#' 
+#' 
+#' @examples
+#'
+#' # Set ArchR H5 Locking Globally
+#' setArchRLocking()
+#'
+#' @export
+setArchRLocking <- function(){
+  
+  #Get Value
+  .ArchRLocking <- options()[["ArchR.locking"]]
+  if(is.null(.ArchRLocking)){
+    .ArchRLocking <- TRUE
+  }else if(!is.logical(.ArchRLocking)){
+    .ArchRLocking <- TRUE
+  }
+
+  #Get Environment Value
+  h5lock <- tryCatch({
+      Sys.getenv("HDF5_USE_FILE_LOCKING")
+    }, error = function(e){
+      ""
+  })
+  if(h5lock=="FALSE"){
+    h5lock <- FALSE
+  }else if(h5lock==""){
+    h5lock <- TRUE
+  }else{
+    stop("H5 Locking Not Valid!")
+  }
+
+  #Set Environmental Value
+  if(.ArchRLocking != h5lock){
+    if(.ArchRLocking){
+      message("Enabling H5 File Locking. If this is not desired check `addArchRLocking`.")
+      h5enableFileLocking()
+    }else{
+      message("Disabling H5 File Locking. If this is not desired check `addArchRLocking`.")
+      h5disableFileLocking()
+    }
+  }
+
+  #Return Value
+  .ArchRLocking
+
+}
+
+##########################################################################################
 # Create Gene/Genome Annotation
 ##########################################################################################
 
@@ -326,13 +546,19 @@ getArchRThreads <- function(){
 #' For something other than one of the currently supported, see `createGeneAnnnotation()` and `createGenomeAnnnotation()`.
 #' @param install  A boolean value indicating whether the `BSgenome` object associated with the provided `genome` should be
 #' automatically installed if it is not currently installed. This is useful for helping reduce user download requirements.
+#' 
+#' @examples
+#'
+#' # Add ArchR Genome to use globally
+#' addArchRGenome("hg19test2")
+#'
 #' @export
 addArchRGenome <- function(genome = NULL, install = TRUE){
   
   .validInput(input = genome, name = "genome", valid = "character")
   .validInput(input = install, name = "install", valid = c("boolean"))
 
-  supportedGenomes <- c("hg19","hg38","mm9","mm10","hg19test")
+  supportedGenomes <- c("hg19","hg38","mm9","mm10","hg19test", "hg19test2")
   
   if(tolower(genome) %ni% supportedGenomes){
     
@@ -352,7 +578,7 @@ addArchRGenome <- function(genome = NULL, install = TRUE){
           stop("BSgenome for hg19 not installed! Please install by setting install = TRUE or by the following:\n\tBiocManager::install(\"BSgenome.Hsapiens.UCSC.hg19\")")
         }
       }
-    }else if(tolower(genome)=="hg19test"){
+    }else if(tolower(genome) %in% c("hg19test", "hg19test2")){
       if(!requireNamespace("BSgenome.Hsapiens.UCSC.hg19", quietly = TRUE)){
         if(install){
           message("BSgenome for hg19 not installed! Now installing by the following:\n\tBiocManager::install(\"BSgenome.Hsapiens.UCSC.hg19\")")
@@ -413,6 +639,12 @@ addArchRGenome <- function(genome = NULL, install = TRUE){
 #' @param genomeAnnotation A boolean value indicating whether the `genomeAnnotation` associated with the ArchRGenome should be returned
 #' instead of the globally defined genome. The `genomeAnnotation` is used downstream to determine things like chromosome sizes and nucleotide content.
 #' This function is not meant to be run with both `geneAnnotation` and `genomeAnnotation` set to `TRUE` (it is an either/or return value).
+#' 
+#' @examples
+#'
+#' # Get ArchR Genome to use globally
+#' getArchRGenome()
+#'
 #' @export
 getArchRGenome <- function(
   geneAnnotation=FALSE, 
@@ -422,7 +654,7 @@ getArchRGenome <- function(
   .validInput(input = geneAnnotation, name = "geneAnnotation", valid = "boolean")
   .validInput(input = genomeAnnotation, name = "genomeAnnotation", valid = "boolean")
 
-  supportedGenomes <- c("hg19","hg38","mm9","mm10","hg19test")
+  supportedGenomes <- c("hg19","hg38","mm9","mm10","hg19test", "hg19test2")
   .ArchRGenome <- options()[["ArchR.genome"]]
 
   if(!is.null(.ArchRGenome)){

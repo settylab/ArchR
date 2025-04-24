@@ -5,7 +5,6 @@
 #' Add TileMatrix to ArrowFiles or an ArchRProject
 #' 
 #' This function, for each sample, will independently compute counts for each tile
-#' per cell in the ArrowFile
 #'
 #' @param input An `ArchRProject` object or character vector of ArrowFiles.
 #' @param chromSizes A named numeric vector containing the chromsome names and lengths. The default behavior is to retrieve
@@ -19,6 +18,15 @@
 #' @param parallelParam A list of parameters to be passed for biocparallel/batchtools parallel computing.
 #' @param force A boolean value indicating whether to force the "TileMatrix' to be overwritten if it already exist in the given `input`.
 #' @param logFile The path to a file to be used for logging ArchR output.
+#' 
+#' @examples
+#'
+#' # Get Test ArchR Project
+#' proj <- getTestProject()
+#'
+#' # Add Tile Matrix
+#' proj <- addTileMatrix(proj, force = TRUE, tileSize = 25000)
+#'
 #' @export
 addTileMatrix <- function(
   input = NULL,
@@ -173,7 +181,7 @@ addTileMatrix <- function(
     cellNames = cellNames,
     params = dfParams,
     featureDF = featureDF,
-    force = force
+    force = TRUE
   )
 
   ######################################
@@ -204,6 +212,31 @@ addTileMatrix <- function(
       .logThis(min(matchID), paste0("MinCell_TileMatrix_",z,"_",chr), logFile = logFile)
       .logThis(max(matchID), paste0("MaxCell_TileMatrix_",z,"_",chr), logFile = logFile)
 
+      #Check Fragments for validity in case
+      nf1 <- length(fragments)
+
+      #Check 1
+      fragmentsBad1 <- fragments[!(start(fragments) >= 1)]
+      fragments <- fragments[start(fragments) >= 1]
+
+      #Check 2
+      fragmentsBad2 <- fragments[!(end(fragments) <= chromLengths[z])]
+      fragments <- fragments[end(fragments) <= chromLengths[z]]
+
+      #Check N
+      nf2 <- length(fragments)
+      if(nf2 < nf1){
+        warning("Skipping over fragments not within chromosome range on Chr:", chr)
+        .logThis(fragmentsBad1, "fragmentsBad1", logFile = logFile)
+        print("Bad1 (Start not greater than 0): ")
+        print(fragmentsBad1)
+        print("Bad2 (End greater than chromsome length): ")
+        .logThis(fragmentsBad2, "fragmentsBad2", logFile = logFile)
+        print(fragmentsBad2)
+        #update matchID now that we've removed some fragments
+        matchID <- S4Vectors::match(mcols(fragments)$RG, cellNames)
+      }
+
       #Create Sparse Matrix
       mat <- Matrix::sparseMatrix(
           i = c(trunc(start(fragments) / tileSize), trunc(end(fragments) / tileSize)) + 1,
@@ -225,8 +258,11 @@ addTileMatrix <- function(
         if(length(blacklist) > 0){
           blacklistz <- blacklist[[chr]]
           if(length(blacklistz) > 0){
-            tile2 <- floor(tileSize/2)
-            blacklistIdx <- unique(trunc(start(unlist(GenomicRanges::slidingWindows(blacklistz,tile2,tile2)))/tileSize) + 1)
+            # Convert blacklistz into "tile" coordinates (where each base represents a tile)
+            start(blacklistz) <- (start(blacklistz) %/% tileSize) + 1
+            end(blacklistz) <- (end(blacklistz) %/% tileSize) + 1
+            # Compute list of tiles within each blacklist region
+            blacklistIdx <- unlist(start(GenomicRanges::slidingWindows(blacklistz, 1, 1)))
             blacklistIdx <- sort(blacklistIdx)
             idxToZero <- which((mat@i + 1) %bcin% blacklistIdx)
             if(length(idxToZero) > 0){
@@ -244,7 +280,8 @@ addTileMatrix <- function(
         Group = paste0("TileMatrix/", chr), 
         binarize = binarize,
         addColSums = TRUE,
-        addRowSums = TRUE
+        addRowSums = TRUE,
+        addRowVarsLog2 = TRUE
         )
 
       gc()

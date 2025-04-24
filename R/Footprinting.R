@@ -19,6 +19,18 @@
 #' @param threads The number of threads to be used for parallel computing.
 #' @param verbose A boolean value that determines whether standard output includes verbose sections.
 #' @param logFile The path to a file to be used for logging ArchR output.
+#' 
+#' @examples
+#'
+#' # Get Test ArchR Project
+#' proj <- getTestProject()
+#'
+#' # Get Motif Positions
+#' positions <- getPositions(proj)
+#'
+#' # Get Footprints
+#' seFoot <- getFootprints(ArchRProj = proj, positions = positions, groupBy = "Clusters", minCells = 10)
+#'
 #' @export
 getFootprints <- function(
   ArchRProj = NULL,
@@ -50,6 +62,29 @@ getFootprints <- function(
   .startLogging(logFile = logFile)
   .logThis(mget(names(formals()),sys.frame(sys.nframe())), "Input-Parameters", logFile=logFile)
 
+  #Validate Positions
+  chromLengths <- getChromLengths(ArchRProj)
+  positions0 <- positions
+  positions <- lapply(seq_along(positions), function(x){
+
+    if(x %% 100 == 0) message("Checking Postions ", x, " of ", length(positions))
+
+    #Check All Positions Are at least 50 + flank from chromSize start!
+    idx1 <- start(positions[[x]]) > flank + 50
+
+    #Check End + 50 + flank less than chromSize end!
+    idx2 <- end(positions[[x]]) + flank + 50 < chromLengths[paste0(seqnames(positions[[x]]))]
+
+    if(sum(idx1 & idx2)==0){
+      NULL
+    }else{
+      positions[[x]][idx1 & idx2]
+    }
+
+  })
+  names(positions) <- names(positions0)
+  positions <- as(positions, "GRangesList")
+
   #####################################################
   # Compute Kmer Frequency Table 
   #####################################################
@@ -68,9 +103,12 @@ getFootprints <- function(
   }
 
   genome <- getGenome(ArchRProj)
-  .requirePackage(genome)
   .requirePackage("Biostrings", source = "bioc")
-  BSgenome <- eval(parse(text = genome))
+  BSgenome <- tryCatch({
+    eval(parse(text = paste0(genome)))
+  }, error = function(e){
+    eval(parse(text = paste0(genome,"::",genome)))
+  })
   BSgenome <- validBSgenome(BSgenome)
 
   .logDiffTime("Computing Kmer Bias Table", tstart, verbose = verbose, logFile = logFile)
@@ -140,7 +178,7 @@ getFootprints <- function(
     rowData = rowData
   )
 
-  metadata(se)$Params <- SimpleList(kmerLength=kmerLength,flank=flank,date=Sys.Date())
+  S4Vectors::metadata(se)$Params <- SimpleList(kmerLength=kmerLength,flank=flank,date=Sys.Date())
 
   return(se)
 
@@ -221,7 +259,7 @@ getFootprints <- function(
   footprintDF <- lapply(seq_along(featureList), function(x){
     outx <- tryCatch({
       
-      featurex <- split(resize(featureList[[x]],1,"center"), seqnames(featureList[[x]]))
+      featurex <- split(GenomicRanges::resize(featureList[[x]],1,"center"), seqnames(featureList[[x]]))
       intSeq <- intersect(names(featurex), names(cov))
       if(length(intSeq)==0){
         .logMessage(paste0("No intersecting chromsomes for feature ", names(featureList)[x], "!"))
@@ -292,7 +330,7 @@ getFootprints <- function(
 
   kmerList <- .safelapply(seq_along(featureList), function(i){
     .logDiffTime(sprintf("Computing Kmer Tables for %s of %s features", i, length(featureList)), tstart, verbose=verbose, logFile = logFile)
-    bsv <- BSgenomeViews(genome , resize(featureList[[i]], window + k, "center"))
+    bsv <- BSgenomeViews(genome, GenomicRanges::resize(featureList[[i]], window + k, "center"))
     bsv <- bsv[width(bsv) == window + k] #none that are trimmed!
     #BSgenome is already stranded
     #kmerPositionFrequencyCpp is Rcpp export for getting kmer position frequencies from strings
@@ -336,7 +374,8 @@ getFootprints <- function(
 #' @param smoothWindow The size in basepairs of the sliding window to be used for smoothing of the footprint signal.
 #' @param baseSize A numeric specifying the baseSize of font in the plots.
 #' @param plot A boolean value indicating whether or not the footprints should be plotted (`TRUE`) or returned as grob objects (`FALSE`).
-#' @param ArchRProj An `ArchRProject` object to be used for plotting directory in `getOutputDirectory`.
+#' @param ArchRProj An `ArchRProject` object to be used for plotting directory in `getOutputDirectory`. If no `ArchRProj` is supplied,
+#' then plots will be stored in a directory called "Plots" in the current working directory.
 #' @param plotName A string indicating the name/prefix of the file to be used for output plots.
 #' @param height The height in inches to be used for the output PDF file.
 #' @param width The width in inches to be used for the output PDF file.
@@ -345,6 +384,21 @@ getFootprints <- function(
 #' @param force If many footprints are requested when plot = FALSE, please set force = TRUE. 
 #' This prevents large amount of footprint plots stored as an object.
 #' @param logFile The path to a file to be used for logging ArchR output.
+#' 
+#' @examples
+#'
+#' # Get Test ArchR Project
+#' proj <- getTestProject()
+#'
+#' # Get Motif Positions
+#' positions <- getPositions(proj)
+#'
+#' # Get Footprints
+#' seFoot <- getFootprints(ArchRProj = proj, positions = positions, groupBy = "Clusters", minCells = 10)
+#'
+#' # Plot Footprints
+#' plotFootprints(seFoot, smoothWindow = 11)
+#'
 #' @export
 plotFootprints <- function(
   seFoot = NULL,
@@ -374,7 +428,7 @@ plotFootprints <- function(
   .validInput(input = smoothWindow, name = "smoothWindow", valid = c("integer", "null"))
   .validInput(input = baseSize, name = "baseSize", valid = c("numeric"))
   .validInput(input = plot, name = "plot", valid = c("boolean"))
-  .validInput(input = ArchRProj, name = "ArchRProj", valid = c("ArchRProj"))
+  .validInput(input = ArchRProj, name = "ArchRProj", valid = c("ArchRProj", "null"))
   .validInput(input = plotName, name = "plotName", valid = c("character"))
   .validInput(input = height, name = "height", valid = c("numeric"))
   .validInput(input = width, name = "width", valid = c("numeric"))
@@ -501,7 +555,7 @@ plotFootprints <- function(
   biasMat <- t(t(biasMat) / colMeans(biasMat[idx, ,drop=FALSE]))
 
   errorList$footMatNorm <- footMat
-  errorList$biasMatNorm <- footMat
+  errorList$biasMatNorm <- biasMat
 
   #Norm Foot By Bias
   if(tolower(normMethod) == "none"){
@@ -579,9 +633,10 @@ plotFootprints <- function(
         ylim = c(quantile(plotFootDF$mean, 0.0001), 1.15*quantile(smoothFoot, 0.999)), 
         xlim = c(min(plotFootDF$x),max(plotFootDF$x))
       ) + theme_ArchR(baseSize = baseSize) + ggtitle(name) +
-      guides(fill = FALSE) + 
-      guides(color = FALSE) + ylab(paste0(title,"Normalized Insertions")) +
-      ggrepel::geom_label_repel(data = plotMax, aes(label = group), size = 3, xlim = c(75, NA))
+      .gg_guides(fill = FALSE, color = FALSE) + 
+      ylab(paste0(title,"Normalized Insertions"))
+      #removed ggrepel due to incompatibility with coord_cartesian - see https://github.com/GreenleafLab/ArchR/issues/493#issuecomment-870012873
+      #ggrepel::geom_label_repel(data = plotMax, aes(label = group), size = 3, xlim = c(75, NA))
 
     ggBias <- ggplot(plotBiasDF, aes(x = x, y = mean, color = group)) + 
       geom_ribbon(aes(ymin = mean - sd, ymax = mean + sd, linetype = NA, fill = group), alpha = 0.4) +
@@ -616,7 +671,7 @@ plotFootprints <- function(
   ) {
     #https://stackoverflow.com/questions/52297978/decrease-overal-legend-size-elements-and-text
     gg +
-        guides(shape = guide_legend(override.aes = list(size = pointSize)),
+        .gg_guides(shape = guide_legend(override.aes = list(size = pointSize)),
                color = guide_legend(override.aes = list(size = pointSize))) +
         theme(legend.title = element_text(size = baseSize), 
               legend.text  = element_text(size = baseSize),

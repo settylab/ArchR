@@ -56,7 +56,7 @@ This is important to allow for exclusion of pseudo-bulk replicates derived from 
 
 \item{pathToMacs2}{The full path to the MACS2 executable.}
 
-\item{genomeSize}{The genome size to be used for MACS2 peak calling (see MACS2 documentation).}
+\item{genomeSize}{The genome size to be used for MACS2 peak calling (see MACS2 documentation). This is required if genome is not hg19, hg38, mm9, or mm10.}
 
 \item{shift}{The number of basepairs to shift each Tn5 insertion. When combined with \code{extsize} this allows you to create proper fragments,
 centered at the Tn5 insertion site, for use with MACS2 (see MACS2 documentation).}
@@ -101,4 +101,16 @@ peak calling (not for MACS2). See \code{addGroupCoverages()} for more info.}
 \description{
 This function will get insertions from coverage files, call peaks,
 and merge peaks to get a "Union Reproducible Peak Set".
+}
+\examples{
+
+# Get Test ArchR Project
+proj <- getTestProject()
+
+# Add Peak Matrix Tiles
+proj <- addReproduciblePeakSet(proj, peakMethod = "tiles")
+
+# Add Peak Matrix Macs2 (Preferred)
+proj <- addReproduciblePeakSet(proj, peakMethod = "macs2")
+
 }

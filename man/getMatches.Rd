@@ -14,5 +14,15 @@ getMatches(ArchRProj = NULL, name = NULL, annoName = NULL)
 \item{annoName}{The name of a specific annotation to subset within the \code{peakAnnotation}.}
 }
 \description{
-This function gets peak annotation matches from a given ArchRProject.
+This function gets peak annotation matches from a given ArchRProject. The peaks in the returned object are in the
+same order as the peaks returned by \code{getPeakSet()}.
+}
+\examples{
+
+# Get Test ArchR Project
+proj <- getTestProject()
+
+# Get Annotation Matches
+matches <- getMatches(proj)
+
 }
