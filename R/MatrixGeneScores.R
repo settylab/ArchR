@@ -15,7 +15,7 @@
 #' @param extendUpstream The minimum and maximum number of basepairs upstream of the transcription start site to consider for gene
 #' activity score calculation.
 #' @param extendDownstream The minimum and maximum number of basepairs downstream of the transcription start site or transcription termination site 
-#' (based on 'useTSS') to consider for gene activity score calculation.
+#' (based on 'useTSS' and 'extendTSS') to consider for gene activity score calculation.
 #' @param useGeneBoundaries A boolean value indicating whether gene boundaries should be employed during gene activity score
 #' calculation. Gene boundaries refers to the process of preventing tiles from contributing to the gene score of a given gene
 #' if there is a second gene's transcription start site between the tile and the gene of interest.
@@ -35,11 +35,21 @@
 #' @param excludeChr A character vector containing the `seqnames` of the chromosomes that should be excluded from this analysis.
 #' @param blacklist A `GRanges` object containing genomic regions to blacklist that may be extremeley over-represented and thus
 #' biasing the geneScores for genes nearby that locus.
+#' saveGeneRegions The full path to a `.rds` file to save the `GRanges` object containing the regions used for calculating gene scores for each gene.
 #' @param threads The number of threads to be used for parallel computing.
 #' @param parallelParam A list of parameters to be passed for biocparallel/batchtools parallel computing.
 #' @param subThreading A boolean determining whether possible use threads within each multi-threaded subprocess if greater than the number of input samples.
 #' @param force A boolean value indicating whether to force the matrix indicated by `matrixName` to be overwritten if it already exist in the given `input`.
 #' @param logFile The path to a file to be used for logging ArchR output.
+#' 
+#' @examples
+#'
+#' # Get Test ArchR Project
+#' proj <- getTestProject()
+#'
+#' # Add Gene Score Matrix With New Model
+#' proj <- addGeneScoreMatrix(proj, matrixName = "GeneScoreMatrix2", geneModel = "exp(-abs(x)/10000) + exp(-1)")
+#'
 #' @export
 addGeneScoreMatrix <- function(
   input = NULL,
@@ -52,13 +62,14 @@ addGeneScoreMatrix <- function(
   geneDownstream = 0, #New Param
   useGeneBoundaries = TRUE,
   useTSS = FALSE, #New Param
-  extendTSS = FALSE,
+  extendTSS = TRUE, #Make TRUE so if you useTSS it will extend if that is desired...
   tileSize = 500,
   ceiling = 4,
   geneScaleFactor = 5, #New Param
   scaleTo = 10000,
   excludeChr = c("chrY", "chrM"),
   blacklist = getBlacklist(input),
+  saveGeneRegions = NULL,
   threads = getArchRThreads(),
   parallelParam = NULL,
   subThreading = TRUE,
@@ -72,15 +83,22 @@ addGeneScoreMatrix <- function(
   .validInput(input = matrixName, name = "matrixName", valid = c("character"))
   .validInput(input = extendUpstream, name = "extendUpstream", valid = c("integer"))
   .validInput(input = extendDownstream, name = "extendDownstream", valid = c("integer"))
+  .validInput(input = geneUpstream, name = "geneUpstream", valid = c("integer"))
+  .validInput(input = geneDownstream, name = "geneDownstream", valid = c("integer"))
+  .validInput(input = useGeneBoundaries, name = "useGeneBoundaries", valid = c("boolean"))
+  .validInput(input = useTSS, name = "useTSS", valid = c("boolean"))
+  .validInput(input = extendTSS, name = "extendTSS", valid = c("boolean"))
   .validInput(input = tileSize, name = "tileSize", valid = c("integer"))
   .validInput(input = ceiling, name = "ceiling", valid = c("integer"))
-  .validInput(input = useGeneBoundaries, name = "useGeneBoundaries", valid = c("boolean"))
+  .validInput(input = geneScaleFactor, name = "geneScaleFactor", valid = c("integer"))
   .validInput(input = scaleTo, name = "scaleTo", valid = c("numeric"))
   .validInput(input = excludeChr, name = "excludeChr", valid = c("character", "null"))
   .validInput(input = blacklist, name = "blacklist", valid = c("GRanges", "null"))
+  .validInput(input = saveGeneRegions, name = "saveGeneRegions", valid = c("character", "null"))
   .validInput(input = threads, name = "threads", valid = c("integer"))
   .validInput(input = parallelParam, name = "parallelParam", valid = c("parallelparam", "null"))
   .validInput(input = force, name = "force", valid = c("boolean"))
+  .validInput(input = subThreading, name = "subThreading", valid = c("boolean"))
   .validInput(input = logFile, name = "logFile", valid = c("character"))
 
   matrixName <- .isProtectedArray(matrixName, exclude = "GeneScoreMatrix")
@@ -103,12 +121,20 @@ addGeneScoreMatrix <- function(
   if(inherits(mcols(genes)$symbol, "list") | inherits(mcols(genes)$symbol, "SimpleList")){
     stop("Found a list in genes symbol! This is an incorrect format. Please correct your genes!")
   }
+  if(!any(colnames(mcols(genes)) == "symbol")) {
+    stop("No symbol column in genes! A column named symbol is exected in the GRanges object passed to the genes parameter!")
+  }
 
   .startLogging(logFile = logFile)
   .logThis(mget(names(formals()),sys.frame(sys.nframe())), "addGeneScoreMatrix Input-Parameters", logFile = logFile)
 
   #Valid GRanges
   genes <- .validGRanges(genes)
+
+  #We are going to remove seqlengths from the genes to ensure now errors
+  seql <- rep(NA, length(seqlengths(genes)))
+  names(seql) <- names(seqlengths(genes))
+  seqlengths(genes) <- seql
 
   #Add args to list
   args <- mget(names(formals()),sys.frame(sys.nframe()))#as.list(match.call())
@@ -119,10 +145,18 @@ addGeneScoreMatrix <- function(
   args$registryDir <- file.path(outDir, "GeneScoresRegistry")
   args$logFile <- logFile
 
-  if(subThreading){
-    h5disableFileLocking()
+  #H5 File Lock Check
+  h5lock <- setArchRLocking()
+  if(h5lock){
+    if(subThreading){
+      message("subThreading Disabled since ArchRLocking is TRUE see `addArchRLocking`")
+      subThreading <- FALSE
+    }
+    args$threads <- min(length(ArrowFiles), threads)
   }else{
-    args$threads <- length(inputFiles)
+    if(subThreading){
+      message("subThreading Enabled since ArchRLocking is FALSE and subThreading is TRUE see `addArchRLocking`")
+    }    
   }
 
   #Remove Input from args
@@ -168,6 +202,7 @@ addGeneScoreMatrix <- function(
   scaleTo = 10000,
   excludeChr = c("chrY","chrM"),
   blacklist = NULL,
+  saveGeneRegions = NULL,
   cellNames = NULL,
   allCells = NULL,
   force = FALSE,
@@ -190,6 +225,7 @@ addGeneScoreMatrix <- function(
   .validInput(input = scaleTo, name = "scaleTo", valid = c("numeric"))
   .validInput(input = excludeChr, name = "excludeChr", valid = c("character", "null"))
   .validInput(input = blacklist, name = "blacklist", valid = c("GRanges", "null"))
+  .validInput(input = saveGeneRegions, name = "saveGeneRegions", valid = c("character", "null"))
   .validInput(input = cellNames, name = "cellNames", valid = c("character", "null"))
   .validInput(input = allCells, name = "allCells", valid = c("character", "null"))
   .validInput(input = force, name = "force", valid = c("boolean"))
@@ -218,9 +254,9 @@ addGeneScoreMatrix <- function(
   if(useTSS){
     .logMessage(paste0(sampleName, " .addGeneScoreMat useTSS = TRUE"))
     distMethod <- "GenePromoter"
-    geneRegions$geneStart <- start(resize(geneRegions, 1, "start"))
-    geneRegions$geneEnd <- start(resize(geneRegions, 1, "end"))
-    geneRegions <- resize(geneRegions, 1, "start")
+    geneRegions$geneStart <- start(GenomicRanges::resize(geneRegions, 1, "start"))
+    geneRegions$geneEnd <- start(GenomicRanges::resize(geneRegions, 1, "end"))
+    geneRegions <- GenomicRanges::resize(geneRegions, 1, "start")
     if(extendTSS){
       geneRegions <- extendGR(gr = geneRegions, upstream = geneUpstream, downstream = geneDownstream)
     }
@@ -228,8 +264,8 @@ addGeneScoreMatrix <- function(
   }else{
     .logMessage(paste0(sampleName, " .addGeneScoreMat useTSS = FALSE"))
     distMethod <- "GeneBody"
-    geneRegions$geneStart <- start(resize(geneRegions, 1, "start"))
-    geneRegions$geneEnd <- start(resize(geneRegions, 1, "end"))
+    geneRegions$geneStart <- start(GenomicRanges::resize(geneRegions, 1, "start"))
+    geneRegions$geneEnd <- start(GenomicRanges::resize(geneRegions, 1, "end"))
     geneRegions <- extendGR(gr = geneRegions, upstream = geneUpstream, downstream = geneDownstream)
     m <- 1 / width(geneRegions)
     geneRegions$geneWeight <- 1 + m * (geneScaleFactor - 1) / (max(m) - min(m))
@@ -240,6 +276,9 @@ addGeneScoreMatrix <- function(
   #Add Gene Index For ArrowFile
   geneRegions <- sort(sortSeqlevels(geneRegions), ignore.strand = TRUE)
   .logThis(geneRegions, paste0(sampleName, " .addGeneScoreMat geneRegions"), logFile = logFile)
+  if(!is.null(saveGeneRegions)) {
+    saveRDS(object = geneRegions, file = saveGeneRegions)
+  }
   
   geneRegions <- split(geneRegions, seqnames(geneRegions))
   geneRegions <- lapply(geneRegions, function(x){
@@ -314,8 +353,8 @@ addGeneScoreMatrix <- function(
       #Time to Overlap Gene Windows
       if(useGeneBoundaries){
 
-        geneStartz <- start(resize(geneRegionz, 1, "start"))
-        geneEndz <- start(resize(geneRegionz, 1, "end"))
+        geneStartz <- start(GenomicRanges::resize(geneRegionz, 1, "start"))
+        geneEndz <- start(GenomicRanges::resize(geneRegionz, 1, "end"))
 
         pminGene <- pmin(geneStartz, geneEndz)
         pmaxGene <- pmax(geneStartz, geneEndz)
@@ -352,16 +391,19 @@ addGeneScoreMatrix <- function(
           )
         e <- pmax(pmaxGene + pForwardMin, e)
 
+        #Check
+        s <- pmax(1, s) #Must Be higher than 0!
+        e <- pmin(e, 2147483647) #Maximum allowable Integer!
         extendedGeneRegion <- IRanges(start = s, end = e)
 
         idx1 <- which(pminGene - pReverseMin < start(extendedGeneRegion))
         if(length(idx1) > 0){
-          stop("Error in gene boundaries minError")
+          stop(sprintf("Error in gene boundaries - minError. The following gene ranges are causing problems and should be removed:\n%s\n", paste0(geneRegionz[idx1], collapse = ", ")))
         }
 
         idx2 <- which(pmaxGene + pForwardMin > end(extendedGeneRegion))
         if(length(idx2) > 0){
-          stop("Error in gene boundaries maxError")
+          stop(sprintf("Error in gene boundaries - maxError The following gene ranges are causing problems and should be removed:\n%s\n", paste0(geneRegionz[idx2], collapse = ", ")))
         }
        
        rm(s, e, pReverse, pReverseMin, pForward, pForwardMin, geneStartz, geneEndz, pminGene, pmaxGene)
@@ -377,7 +419,7 @@ addGeneScoreMatrix <- function(
 
       #Determine Sign for Distance relative to strand (Directionality determined based on dist from gene start)
       isMinus <- BiocGenerics::which(strand(geneRegionz) == "-")
-      signDist <- sign(start(uniqueTiles)[subjectHits(tmp)] - start(resize(geneRegionz,1,"start"))[queryHits(tmp)])
+      signDist <- sign(start(uniqueTiles)[subjectHits(tmp)] - start(GenomicRanges::resize(geneRegionz,1,"start"))[queryHits(tmp)])
       signDist[isMinus] <- signDist[isMinus] * -1
 
       #Correct the orientation for the distance!
@@ -393,7 +435,7 @@ addGeneScoreMatrix <- function(
       if(!is.null(blacklist)){
         if(length(blacklist) > 0){
           blacklistz <- blacklist[[chrz]]
-          if(is.null(blacklistz) | length(blacklistz) > 0){
+          if(!is.null(blacklistz) | length(blacklistz) > 0){
             tilesBlacklist <- 1 * (!overlapsAny(uniqueTiles, ranges(blacklistz)))
             if(sum(tilesBlacklist == 0) > 0){
               x <- x * tilesBlacklist[subjectHits(tmp)] #Multiply Such That All Blacklisted Tiles weight is now 0!

@@ -5,7 +5,8 @@
 #' Launch ArchR Genome Browser
 #' 
 #' This function will open an interactive shiny session in style of a browser track. It allows for normalization of the signal which
-#' enables direct comparison across samples.
+#' enables direct comparison across samples. Note that the genes displayed in this browser are derived from your `geneAnnotation`
+#' (i.e. the `BSgenome` object you used) so they may not match other online genome browsers that use different gene annotations.
 #'
 #' @param ArchRProj An `ArchRProject` object.
 #' @param features A `GRanges` object containing the "features" to be plotted via the "featureTrack". This should be thought of as a
@@ -14,6 +15,10 @@
 #' This `GRanges` object start represents the center position of one loop anchor and the end represents the center position of another loop anchor. 
 #' A "loopTrack" draws an arc between two genomic regions that show some type of interaction. This type of track can be used 
 #' to display chromosome conformation capture data or co-accessibility links obtained using `getCoAccessibility()`. 
+#' @param sampleLabels The name of a column in `cellColData` to use to identify samples. In most cases, this parameter should be left as `NULL` and you
+#' should only use this parameter if you do not want to use the default sample labels stored in `cellColData$Sample`. However, if your individual Arrow
+#' files do not map to individual samples, then you should set this parameter to accurately identify your samples. This is the case in (for example)
+#' multiplexing applications where cells from different biological samples are mixed into the same reaction and demultiplexed based on a lipid barcode or genotype.
 #' @param minCells The minimum number of cells contained within a cell group to allow for this cell group to be plotted. This argument
 #' can be used to exclude pseudo-bulk replicates generated from low numbers of cells.
 #' @param baseSize The numeric font size to be used in the plot. This applies to all plot labels.
@@ -26,11 +31,20 @@
 #' @param threads The number of threads to use for parallel execution.
 #' @param verbose A boolean value that determines whether standard output should be printed.
 #' @param logFile The path to a file to be used for logging ArchR output.
+#' 
+#' @examples
+#'
+# #Get Test ArchR Project
+#' proj <- getTestProject()
+#'
+#' #Launch Browser with `ArchRBrowser(proj)`
+#'
 #' @export
 ArchRBrowser <- function(
   ArchRProj = NULL,
   features = getPeakSet(ArchRProj),
   loops = getCoAccessibility(ArchRProj),
+  sampleLabels = "Sample",
   minCells = 25,
   baseSize = 10,
   borderWidth = 0.5,
@@ -46,6 +60,7 @@ ArchRBrowser <- function(
   .validInput(input = ArchRProj, name = "ArchRProj", valid = c("ArchRProj"))
   .validInput(input = features, name = "features", valid = c("granges", "grangeslist", "null"))
   .validInput(input = loops, name = "loops", valid = c("granges", "grangeslist", "null"))
+  .validInput(input = sampleLabels, name = "sampleLabels", valid = c("character"))
   .validInput(input = minCells, name = "minCells", valid = c("integer"))
   .validInput(input = baseSize, name = "baseSize", valid = c("integer"))
   .validInput(input = borderWidth, name = "borderWidth", valid = c("numeric"))
@@ -63,10 +78,16 @@ ArchRBrowser <- function(
   .requirePackage("shiny", installInfo = 'install.packages("shiny")')
   .requirePackage("rhandsontable", installInfo = 'install.packages("rhandsontable")')
 
+  if(sampleLabels %ni% colnames(ArchRProj@cellColData)) {
+    stop("sampleLabels not present as a column in cellColData. Check inputs.")
+  }
+
   #Determine Grouping Methods
   ccd <- getCellColData(ArchRProj)
   discreteCols <- lapply(seq_len(ncol(ccd)), function(x){
-    .isDiscrete(ccd[, x])
+    check1 <- .isDiscrete(ccd[, x])
+    check2 <- max(table(ccd[, x])) > minCells
+    check1 & check2
   }) %>% unlist %>% {colnames(ccd)[.]}
   if("Clusters" %in% discreteCols){
     selectCols <- "Clusters"
@@ -79,22 +100,24 @@ ArchRBrowser <- function(
     .validInput(input = gr, name = "gr", valid = c("GRanges"))
     .validInput(input = upstream, name = "upstream", valid = c("integer"))
     .validInput(input = downstream, name = "downstream", valid = c("integer"))
-    #Get Info From gr
-    st <- start(gr)
-    ed <- end(gr)
-    #https://bioinformatics.stackexchange.com/questions/4390/expand-granges-object-different-amounts-upstream-vs-downstream
-    isMinus <- BiocGenerics::which(strand(gr) == "-")
-    isOther <- BiocGenerics::which(strand(gr) != "-")
-    #Forward
-    st[isOther] <- st[isOther] - upstream
-    ed[isOther] <- ed[isOther] + downstream
-    #Reverse
-    ed[isMinus] <- ed[isMinus] + upstream
-    st[isMinus] <- st[isMinus] - downstream
-    #If Any extensions now need to be flipped.
-    end(gr) <- pmax(st, ed)
-    start(gr) <- pmin(st, ed)
-    return(gr)
+    suppressWarnings({
+      #Get Info From gr
+      st <- start(gr)
+      ed <- end(gr)
+      #https://bioinformatics.stackexchange.com/questions/4390/expand-granges-object-different-amounts-upstream-vs-downstream
+      isMinus <- BiocGenerics::which(strand(gr) == "-")
+      isOther <- BiocGenerics::which(strand(gr) != "-")
+      #Forward
+      st[isOther] <- st[isOther] - upstream
+      ed[isOther] <- ed[isOther] + downstream
+      #Reverse
+      ed[isMinus] <- ed[isMinus] + upstream
+      st[isMinus] <- st[isMinus] - downstream
+      #If Any extensions now need to be flipped.
+      end(gr) <- pmax(st, ed)
+      start(gr) <- pmin(st, ed)
+      gr
+    })
   }
 
 
@@ -111,7 +134,8 @@ ArchRBrowser <- function(
   ui <- fluidPage(
     theme = theme,
     titlePanel(
-        h1(div(HTML(paste0("<b>ArchR Browser v1 : nCells = ", formatC(nCells(ArchRProj), format="f", big.mark = ",", digits=0), "</b>"))), align = "left")
+      title = h1(div(HTML(paste0("<b>ArchR Browser v1 : nCells = ", formatC(nCells(ArchRProj), format="f", big.mark = ",", digits=0), "</b>"))), align = "left"),
+      windowTitle = "ArchRBrowser v1"
     ),
     sidebarLayout(
       sidebarPanel(
@@ -291,7 +315,7 @@ ArchRBrowser <- function(
 
             region <- region[which(tolower(mcols(region)$symbol) %in% tolower(input$name))]
             region <- region[order(match(tolower(mcols(region)$symbol), tolower(input$name)))]
-            region1 <- resize(region, 1, "start")
+            region1 <- GenomicRanges::resize(region, 1, "start")
             strand(region1) <- "*"
 
             #Extend Region
@@ -310,7 +334,11 @@ ArchRBrowser <- function(
             groupBy <- isolate(input$grouping)
 
             groupDF <- tryCatch({
-              isolate(hot_to_r(input$Metadata))
+              o <- isolate(hot_to_r(input$Metadata))
+              if(is.null(o)){
+                stop() #switch methods!
+              }
+              o
             },error=function(x){
               groups <- gtools::mixedsort(unique(ccd[,isolate(input$grouping)]))
               mdata <- data.frame(
@@ -341,7 +369,6 @@ ArchRBrowser <- function(
 
             useGroups <- groupDF[groupDF[,"include"],"group"]
 
-
             if(!all(.isColor(groupDF[groupDF[,"include"], "color"]))){
               p <- ggplot() +
                   xlim(c(-5,5)) + ylim(c(-5,5)) +
@@ -369,6 +396,7 @@ ArchRBrowser <- function(
                 tileSize = tileSize, 
                 useGroups = useGroups,
                 groupBy = groupBy,
+                sampleLabels = sampleLabels,
                 threads = threads, 
                 minCells = minCells,
                 ylim = ylim,
@@ -511,6 +539,7 @@ ArchRBrowser <- function(
                 tileSize = tileSize, 
                 useGroups = useGroups,
                 groupBy = groupBy,
+                sampleLabels = sampleLabels,
                 threads = threads, 
                 minCells = minCells,
                 ylim = ylim,
@@ -628,7 +657,8 @@ ArchRBrowserTrack <- function(...){
 #' Plot an ArchR Region Track
 #' 
 #' This function will plot the coverage at an input region in the style of a browser track. It allows for normalization of the signal
-#' which enables direct comparison across samples.
+#' which enables direct comparison across samples. Note that the genes displayed in these plots are derived from your `geneAnnotation`
+#' (i.e. the `BSgenome` object you used) so they may not match other online genome browsers that use different gene annotations.
 #'
 #' @param ArchRProj An `ArchRProject` object.
 #' @param region A `GRanges` region that indicates the region to be plotted. If more than one region exists in the `GRanges` object,
@@ -639,13 +669,19 @@ ArchRBrowserTrack <- function(...){
 #' column will be grouped together and the average signal will be plotted.
 #' @param useGroups A character vector that is used to select a subset of groups by name from the designated `groupBy` column in
 #' `cellColData`. This limits the groups to be plotted.
+#' @param sampleLabels The name of a column in `cellColData` to use to identify samples. In most cases, this parameter should be left as `NULL` and you
+#' should only use this parameter if you do not want to use the default sample labels stored in `cellColData$Sample`. However, if your individual Arrow
+#' files do not map to individual samples, then you should set this parameter to accurately identify your samples. This is the case in (for example)
+#' multiplexing applications where cells from different biological samples are mixed into the same reaction and demultiplexed based on a lipid barcode or genotype.
 #' @param plotSummary A character vector containing the features to be potted. Possible values include "bulkTrack" (the ATAC-seq signal),
 #' "scTrack" (scATAC-seq signal), "featureTrack" (i.e. the peak regions), "geneTrack" (line diagrams of genes with introns and exons shown. 
 #' Blue-colored genes are on the minus strand and red-colored genes are on the plus strand), and "loopTrack" (links between a peak and a gene).
 #' @param sizes A numeric vector containing up to 3 values that indicate the sizes of the individual components passed to `plotSummary`.
 #' The order must be the same as `plotSummary`.
-#' @param features A `GRanges` object containing the "features" to be plotted via the "featureTrack". This should be thought of as a
-#' bed track. i.e. the set of peaks obtained using `getPeakSet(ArchRProj))`. 
+#' @param features A `GRanges` (for a single feature track) or `GRangesList` (for multiple feature tracks) object containing the "features" to
+#' be plotted via the "featureTrack". This should be thought of as a bed track. i.e. the set of peaks obtained using `getPeakSet(ArchRProj))`.
+#' If you provide a `GRangesList`, then each element of that object must be named and this name will be used on the plot.
+#' For example - `GRangesList("peaks" = peak_gr, "other" = other_gr)`.
 #' @param loops A `GRanges` object containing the "loops" to be plotted via the "loopTrack".
 #' This `GRanges` object start represents the center position of one loop anchor and the end represents the center position of another loop anchor. 
 #' A "loopTrack" draws an arc between two genomic regions that show some type of interaction. This type of track can be used 
@@ -658,12 +694,18 @@ ArchRBrowserTrack <- function(...){
 #' @param downstream The number of basepairs downstream of the transcription start site of `geneSymbol` to extend the plotting window.
 #' If `region` is supplied, this argument is ignored.
 #' @param tileSize The numeric width of the tile/bin in basepairs for plotting ATAC-seq signal tracks. All insertions in a single bin will be summed.
+#' @param maxCells The maximum number of cells to use for obtaining data to plot as a bulk track. Using more cells can increase the resolution of your plots
+#' at the expense of increased processing time.
 #' @param minCells The minimum number of cells contained within a cell group to allow for this cell group to be plotted. This argument can be
 #' used to exclude pseudo-bulk replicates generated from low numbers of cells.
 #' @param normMethod The name of the column in `cellColData` by which normalization should be performed. The recommended and default value
 #' is "ReadsInTSS" which simultaneously normalizes tracks based on sequencing depth and sample data quality.
+#' @param highlight A `GRanges` object containing a region or regions on the plot to highlight. Multiple highlighted regions within the GRanges object are allowed
+#' Any highlight region that does not overlap the displayed region will be ignored.
+#' @param highlightFill The color to be used for the highlighted region designated by `highlight`. This can be a valid R color (i.e. "lightblue1")
+#' or a hex color (i.e. "#bfefff")
 #' @param threads The number of threads to use for parallel execution.
-#' @param ylim The numeric quantile y-axis limit to be used for for "bulkTrack" plotting. If not provided, the y-axis limit will be c(0, 0.999).
+#' @param ylim The numeric quantile y-axis limit to be used for for "bulkTrack" plotting. This should be expressed as `c(lower limit, upper limit)` such as `c(0,0.99)`. If not provided, the y-axis limit will be c(0, 0.999).
 #' @param pal A custom palette (see `paletteDiscrete` or `ArchRPalettes`) used to override coloring for groups.
 #' @param baseSize The numeric font size to be used in the plot. This applies to all plot labels.
 #' @param scTileSize The width of the tiles in scTracks. Larger numbers may make cells overlap more. Default is 0.5 for about 100 cells.
@@ -675,12 +717,29 @@ ArchRBrowserTrack <- function(...){
 #' @param title The title to add at the top of the plot next to the plot's genomic coordinates.
 #' @param verbose A boolean value that determines whether standard output should be printed.
 #' @param logFile The path to a file to be used for logging ArchR output.
+#' 
+#' @examples
+#'
+#' #Get Test ArchR Project
+#' proj <- getTestProject()
+#' 
+#' #Highlight
+#' genes <- getGenes()
+#' genes <- genes[which(genes$symbol %in% c("CD3D", "MS4A1"))]
+#' 
+#' #Plot Track
+#' p <- plotBrowserTrack(proj, geneSymbol = c("CD3D", "MS4A1"), groupBy = "CellType", highlight = genes, highlightFill = "dodgerblue3")
+#' 
+#' #Plot PDF
+#' plotPDF(p, name = "Track-CD3D-MS4A1", ArchRProj = proj)
+#' 
 #' @export
 plotBrowserTrack <- function(
   ArchRProj = NULL, 
   region = NULL, 
   groupBy = "Clusters",
-  useGroups = NULL, 
+  useGroups = NULL,
+  sampleLabels = "Sample",
   plotSummary = c("bulkTrack", "featureTrack", "loopTrack", "geneTrack"),
   sizes = c(10, 1.5, 3, 4),
   features = getPeakSet(ArchRProj),
@@ -690,9 +749,12 @@ plotBrowserTrack <- function(
   log2Norm = TRUE,
   upstream = 50000,
   downstream = 50000,
-  tileSize = 250, 
+  tileSize = 250,
+  maxCells = 500,
   minCells = 25,
   normMethod = "ReadsInTSS",
+  highlight = NULL,
+  highlightFill = "firebrick3",
   threads = getArchRThreads(), 
   ylim = NULL,
   pal = NULL,
@@ -712,6 +774,7 @@ plotBrowserTrack <- function(
   .validInput(input = region, name = "region", valid = c("granges","null"))
   .validInput(input = groupBy, name = "groupBy", valid = "character")
   .validInput(input = useGroups, name = "useGroups", valid = c("character", "null"))
+  .validInput(input = sampleLabels, name = "sampleLabels", valid = c("character"))
   .validInput(input = plotSummary, name = "plotSummary", valid = "character")
   .validInput(input = sizes, name = "sizes", valid = "numeric")
   .validInput(input = features, name = "features", valid = c("granges", "grangeslist", "null"))
@@ -722,8 +785,11 @@ plotBrowserTrack <- function(
   .validInput(input = upstream, name = "upstream", valid = c("integer"))
   .validInput(input = downstream, name = "downstream", valid = c("integer"))
   .validInput(input = tileSize, name = "tileSize", valid = c("integer"))
+  .validInput(input = maxCells, name = "maxCells", valid = c("integer"))
   .validInput(input = minCells, name = "minCells", valid = c("integer"))
   .validInput(input = normMethod, name = "normMethod", valid = c("character"))
+  .validInput(input = highlight, name = "highlight", valid = c("granges", "null"))
+  .validInput(input = highlightFill, name = "highlightFill", valid = c("character"))
   .validInput(input = threads, name = "threads", valid = c("integer"))
   .validInput(input = ylim, name = "ylim", valid = c("numeric", "null"))
   .validInput(input = pal, name = "pal", valid = c("palette", "null"))
@@ -740,6 +806,10 @@ plotBrowserTrack <- function(
   .startLogging(logFile=logFile)
   .logThis(mget(names(formals()),sys.frame(sys.nframe())), "plotBrowserTrack Input-Parameters", logFile = logFile)
 
+  if(sampleLabels %ni% colnames(ArchRProj@cellColData)) {
+    stop("sampleLabels not present as a column in cellColData. Check inputs.")
+  }
+
   ##########################################################
   # Get Region Where Plot Will Occur (GenomicRanges)
   ##########################################################
@@ -750,7 +820,7 @@ plotBrowserTrack <- function(
       region <- region[which(tolower(mcols(region)$symbol) %in% tolower(geneSymbol))]
       region <- region[order(match(tolower(mcols(region)$symbol), tolower(geneSymbol)))]
       print(region)
-      region <- resize(region, 1, "start")
+      region <- GenomicRanges::resize(region, 1, "start")
       strand(region) <- "*"
       region <- extendGR(region, upstream = upstream, downstream = downstream)
     }
@@ -789,7 +859,9 @@ plotBrowserTrack <- function(
         region = region[x], 
         tileSize = tileSize, 
         groupBy = groupBy,
-        threads = threads, 
+        sampleLabels = sampleLabels,
+        threads = threads,
+        maxCells = maxCells,
         minCells = minCells,
         pal = pal,
         ylim = ylim,
@@ -802,11 +874,13 @@ plotBrowserTrack <- function(
         title = title,
         useGroups = useGroups,
         tstart = tstart,
+        highlight = highlight,
+        highlightFill = highlightFill,
         logFile = logFile) + theme(plot.margin = unit(c(0.35, 0.75, 0.35, 0.75), "cm"))
     }
     
     ##########################################################
-    # Bulk Tracks
+    # Single-cell Tracks
     ##########################################################
     if("sctrack" %in% tolower(plotSummary)){
       .logDiffTime(sprintf("Adding SC Tracks (%s of %s)",x,length(region)), t1=tstart, verbose=verbose, logFile=logFile)
@@ -815,6 +889,7 @@ plotBrowserTrack <- function(
         region = region[x], 
         tileSize = tileSize, 
         groupBy = groupBy,
+        sampleLabels = sampleLabels,
         threads = threads, 
         minCells = 5,
         maxCells = scCellsMax,
@@ -828,6 +903,8 @@ plotBrowserTrack <- function(
         title = title,
         useGroups = useGroups,
         tstart = tstart,
+        highlight = highlight,
+        highlightFill = highlightFill,
         logFile = logFile) + theme(plot.margin = unit(c(0.35, 0.75, 0.35, 0.75), "cm"))
     }
 
@@ -843,12 +920,14 @@ plotBrowserTrack <- function(
             facetbaseSize = facetbaseSize,
             hideX = TRUE, 
             title = "Peaks",
+            highlight = highlight,
+            highlightFill = highlightFill,
             logFile = logFile) + theme(plot.margin = unit(c(0.1, 0.75, 0.1, 0.75), "cm"))
       }
     }
 
     ##########################################################
-    # Feature Tracks
+    # Loop Tracks
     ##########################################################
     if("looptrack" %in% tolower(plotSummary)){
       if(!is.null(loops)){
@@ -860,6 +939,8 @@ plotBrowserTrack <- function(
             hideX = TRUE, 
             hideY = TRUE,
             title = "Loops",
+            highlight = highlight,
+            highlightFill = highlightFill,
             logFile = logFile) + theme(plot.margin = unit(c(0.1, 0.75, 0.1, 0.75), "cm"))
       }
     }
@@ -874,6 +955,8 @@ plotBrowserTrack <- function(
         region = region[x], 
         facetbaseSize = facetbaseSize,
         title = "Genes",
+        highlight = highlight,
+        highlightFill = highlightFill,
         logFile = logFile) + theme(plot.margin = unit(c(0.1, 0.75, 0.1, 0.75), "cm"))
     }
 
@@ -952,9 +1035,11 @@ plotBrowserTrack <- function(
 .bulkTracks <- function(
   ArchRProj = NULL, 
   region = NULL, 
-  tileSize = 100, 
+  tileSize = 100,
+  maxCells = 500,
   minCells = 25,
   groupBy = "Clusters",
+  sampleLabels = "Sample",
   useGroups = NULL,
   normMethod = "ReadsInTSS",
   threads = 1, 
@@ -968,6 +1053,8 @@ plotBrowserTrack <- function(
   pal = NULL,
   tstart = NULL,
   verbose = FALSE,
+  highlight = NULL,
+  highlightFill = NULL,
   logFile = NULL
   ){
 
@@ -982,6 +1069,8 @@ plotBrowserTrack <- function(
     groupBy = groupBy, 
     normMethod = normMethod,
     useGroups = useGroups,
+    sampleLabels = sampleLabels,
+    maxCells = maxCells,
     minCells = minCells,
     region = region, 
     tileSize = tileSize, 
@@ -1040,7 +1129,25 @@ plotBrowserTrack <- function(
             margin = margin(0,0.35,0,0.35, "cm")),
             strip.text.y = element_text(angle = 0),
           strip.background = element_rect(color="black")) +
-    guides(fill = FALSE, colour = FALSE) + ggtitle(title)
+          .gg_guides(fill = FALSE, colour = FALSE) + ggtitle(title)
+
+  #Determine Whether To Highlight
+  if(!is.null(highlight)) {
+    highlight <- subsetByOverlaps(highlight, region, ignore.strand=TRUE)
+  }
+  if(length(highlight) > 0){
+
+    #Data Frame
+    dfH <- data.frame(highlight)
+    dfH$start <- pmax(dfH$start, start(region))
+    dfH$end <- pmin(dfH$end, end(region))
+
+    #Plot Highlight
+    p <- p +
+      geom_rect(data = dfH, aes(xmin = start, xmax = end, ymin = -Inf, ymax = Inf), 
+        alpha=0.2, fill=highlightFill, inherit.aes = FALSE)
+
+  }
 
   p
 
@@ -1053,6 +1160,7 @@ plotBrowserTrack <- function(
   ArchRProj = NULL,
   useGroups = NULL,
   groupBy = NULL,
+  sampleLabels = "Sample",
   region = NULL,
   tileSize = NULL,
   normMethod = NULL,
@@ -1090,8 +1198,8 @@ plotBrowserTrack <- function(
     tabGroups <- table(cellGroups)
   }
 
-  cellsBySample <- split(rownames(getCellColData(ArchRProj)), getCellColData(ArchRProj, "Sample", drop = TRUE))
-  groupsBySample <- split(cellGroups, getCellColData(ArchRProj, "Sample", drop = TRUE))
+  cellsBySample <- split(rownames(getCellColData(ArchRProj)), getCellColData(ArchRProj, sampleLabels, drop = TRUE))
+  groupsBySample <- split(cellGroups, getCellColData(ArchRProj, sampleLabels, drop = TRUE))
   uniqueGroups <- gtools::mixedsort(unique(cellGroups))
   
   #Tile Region
@@ -1264,6 +1372,8 @@ plotBrowserTrack <- function(
   facetbaseSize,
   colorMinus = "dodgerblue2",
   colorPlus = "red",
+  highlight = NULL,
+  highlightFill = NULL,
   logFile = NULL
   ){
 
@@ -1342,7 +1452,7 @@ plotBrowserTrack <- function(
       theme(axis.title.x=element_blank(), axis.text.x=element_blank(),axis.ticks.x=element_blank()) +
       theme(axis.title.y=element_blank(), axis.text.y=element_blank(),axis.ticks.y=element_blank()) +
       theme(legend.text = element_text(size = baseSize), strip.text.y = element_text(size = facetbaseSize, angle = 0)) +
-      guides(fill = guide_legend(override.aes = list(colour = NA, shape = "c", size=3)), color = FALSE) + 
+      .gg_guides(fill = guide_legend(override.aes = list(colour = NA, shape = "c", size=3)), color = FALSE) + 
       theme(legend.position="bottom") +
       theme(legend.title=element_text(size=5), legend.text=element_text(size=7),
         legend.key.size = unit(0.75,"line"), legend.background = element_rect(color =NA), strip.background = element_blank())
@@ -1350,17 +1460,17 @@ plotBrowserTrack <- function(
     #Add Labels if There are Genes with this orientation!
     if(length(which(genesO$strand!="-")) > 0){
       p <- p + ggrepel::geom_label_repel(data=genesO[which(genesO$strand!="-"),], 
-        aes(x = start, y = cluster, label = symbol, color = strand, fill = NA), 
+        aes(x = start, y = cluster, label = symbol, color = strand), 
           segment.color = "grey", nudge_x = -0.01*(end(region) - start(region)), nudge_y = -0.25, 
-          size = labelSize, direction = "x")
+          size = labelSize, direction = "x", inherit.aes=FALSE)
     }
 
     #Add Labels if There are Genes with this orientation!
     if(length(which(genesO$strand=="-")) > 0){
       p <- p + ggrepel::geom_label_repel(data=genesO[which(genesO$strand=="-"),], 
-        aes(x = end, y = cluster, label = symbol, color = strand, fill = NA), 
+        aes(x = end, y = cluster, label = symbol, color = strand), 
           segment.color = "grey", nudge_x = +0.01*(end(region) - start(region)), nudge_y = 0.25, 
-          size = labelSize, direction = "x")
+          size = labelSize, direction = "x", inherit.aes=FALSE)
     }
 
     p <- p + theme(legend.justification = c(0, 1), 
@@ -1378,6 +1488,24 @@ plotBrowserTrack <- function(
       scale_x_continuous(limits = c(start(region), end(region)), expand = c(0,0)) +
       theme(axis.title.x=element_blank(), axis.text.x=element_blank(),axis.ticks.x=element_blank()) +
       theme(axis.title.y=element_blank(), axis.text.y=element_blank(),axis.ticks.y=element_blank())
+
+  }
+
+  #Determine Whether To Highlight
+  if(!is.null(highlight)) {
+    highlight <- subsetByOverlaps(highlight, region, ignore.strand=TRUE)
+  }
+  if(length(highlight) > 0){
+
+    #Data Frame
+    dfH <- data.frame(highlight)
+    dfH$start <- pmax(dfH$start, start(region))
+    dfH$end <- pmin(dfH$end, end(region))
+
+    #Plot Highlight
+    p <- p +
+      geom_rect(data = dfH, aes(xmin = start, xmax = end, ymin = -Inf, ymax = Inf), 
+        alpha=0.2, fill=highlightFill, inherit.aes = FALSE)
 
   }
 
@@ -1403,6 +1531,8 @@ plotBrowserTrack <- function(
   borderWidth = 0.4, 
   hideX = FALSE, 
   hideY = FALSE,
+  highlight = NULL,
+  highlightFill = NULL,
   logFile = NULL
   ){
 
@@ -1422,11 +1552,24 @@ plotBrowserTrack <- function(
       featureList <- features
       hideY <- FALSE
     }
+
+    #make sure all elements in featureList have a name for plot display
+    for(i in seq_along(featureList)){
+      if(is.null(names(featureList)[i]) || is.na(names(featureList)[i]) || nchar(names(featureList)[i]) == 0) {
+        message("Warning! Object ",i," in your GRangesList (features) is not named. Generic numbering will be used.")
+        names(featureList)[i] <- as.character(i)
+      }
+    }
+
     featureList <- featureList[rev(seq_along(featureList))]
 
     featureO <- lapply(seq_along(featureList), function(x){
       featurex <- featureList[[x]]
       namex <- names(featureList)[x]
+      if(is.null(namex) || namex == "") {
+        message("Warning! Object ",x," in your GRangesList (features) is not named. Generic numbering will be used.")
+        namex <- as.character(x)
+      }
       mcols(featurex) <- NULL
       sub <- subsetByOverlaps(featurex, region, ignore.strand = TRUE)
       if(length(sub) > 0){
@@ -1458,7 +1601,8 @@ plotBrowserTrack <- function(
       scale_color_manual(values = pal) +
       theme(legend.text = element_text(size = baseSize)) + 
       theme_ArchR(baseSize = baseSize, baseLineSize = borderWidth, baseRectSize = borderWidth) +
-      guides(color = FALSE, fill = FALSE) + theme(strip.text.y = element_text(size = facetbaseSize, angle = 0), strip.background = element_blank())
+      .gg_guides(color = FALSE, fill = FALSE) + 
+      theme(strip.text.y = element_text(size = facetbaseSize, angle = 0), strip.background = element_blank())
 
   }else{
 
@@ -1480,6 +1624,24 @@ plotBrowserTrack <- function(
 
   if(hideY){
     p <- p + theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
+  }
+
+  #Determine Whether To Highlight
+  if(!is.null(highlight)) {
+    highlight <- subsetByOverlaps(highlight, region, ignore.strand=TRUE)
+  }
+  if(length(highlight) > 0){
+
+    #Data Frame
+    dfH <- data.frame(highlight)
+    dfH$start <- pmax(dfH$start, start(region))
+    dfH$end <- pmin(dfH$end, end(region))
+
+    #Plot Highlight
+    p <- p +
+      geom_rect(data = dfH, aes(xmin = start, xmax = end, ymin = -Inf, ymax = Inf), 
+        alpha=0.2, fill=highlightFill, inherit.aes = FALSE)
+
   }
 
   if(!is.ggplot(p)){
@@ -1504,6 +1666,8 @@ plotBrowserTrack <- function(
   borderWidth = 0.4, 
   hideX = FALSE, 
   hideY = FALSE,
+  highlight = NULL,
+  highlightFill = NULL,
   logFile = NULL
   ){
 
@@ -1577,7 +1741,7 @@ plotBrowserTrack <- function(
         theme_ArchR(baseSize = baseSize, baseLineSize = borderWidth, baseRectSize = borderWidth, legendPosition = "right") +
         theme(strip.text.y = element_text(size = facetbaseSize, angle = 0), strip.background = element_blank(),
           legend.box.background = element_rect(color = NA)) +
-        guides(color= guide_colorbar(barwidth = 0.75, barheight = 3))
+        .gg_guides(color= guide_colorbar(barwidth = 0.75, barheight = 3))
 
     }else{
 
@@ -1615,6 +1779,24 @@ plotBrowserTrack <- function(
     p <- p + theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
   }
 
+  #Determine Whether To Highlight
+  if(!is.null(highlight)) {
+    highlight <- subsetByOverlaps(highlight, region, ignore.strand=TRUE)
+  }
+  if(length(highlight) > 0){
+
+    #Data Frame
+    dfH <- data.frame(highlight)
+    dfH$start <- pmax(dfH$start, start(region))
+    dfH$end <- pmin(dfH$end, end(region))
+
+    #Plot Highlight
+    p <- p +
+      geom_rect(data = dfH, aes(xmin = start, xmax = end, ymin = -Inf, ymax = Inf), 
+        alpha=0.2, fill=highlightFill, inherit.aes = FALSE)
+
+  }
+
   if(!is.ggplot(p)){
     .logError("loopTracks is not a ggplot!", fn = ".loopTracks", info = "", errorList = NULL, logFile = logFile)
   }
@@ -1642,6 +1824,7 @@ plotBrowserTrack <- function(
   minCells = 5,
   maxCells = 100,
   groupBy = "Clusters",
+  sampleLabels = sampleLabels,
   useGroups = NULL,
   threads = 1,
   baseSize = 7,
@@ -1650,6 +1833,8 @@ plotBrowserTrack <- function(
   tickWidth = 0.4,
   facetbaseSize = 7,
   geneAnnotation = getGeneAnnotation(ArchRProj),
+  highlight = NULL,
+  highlightFill = NULL,
   title = "",
   pal = NULL,
   tstart = NULL,
@@ -1690,8 +1875,8 @@ plotBrowserTrack <- function(
     tabGroups <- table(cellGroups)
   }
 
-  cellsBySample <- split(rownames(getCellColData(ArchRProj)), getCellColData(ArchRProj, "Sample", drop = TRUE))
-  groupsBySample <- split(cellGroups, getCellColData(ArchRProj, "Sample", drop = TRUE))
+  cellsBySample <- split(rownames(getCellColData(ArchRProj)), getCellColData(ArchRProj, sampleLabels, drop = TRUE))
+  groupsBySample <- split(cellGroups, getCellColData(ArchRProj, sampleLabels, drop = TRUE))
   uniqueGroups <- gtools::mixedsort(unique(cellGroups))
   
   #Tile Region
@@ -1778,9 +1963,27 @@ plotBrowserTrack <- function(
               margin = margin(0,0.35,0,0.35, "cm")),
               strip.text.y = element_text(angle = 0),
             strip.background = element_rect(color="black")) +
-      guides(fill = FALSE, colour = FALSE) + ggtitle(title)
+            .gg_guides(fill = FALSE, colour = FALSE) + ggtitle(title)
 
-    p
+  #Determine Whether To Highlight
+  if(!is.null(highlight)) {
+    highlight <- subsetByOverlaps(highlight, region, ignore.strand=TRUE)
+  }
+  if(length(highlight) > 0){
+
+    #Data Frame
+    dfH <- data.frame(highlight)
+    dfH$start <- pmax(dfH$start, start(region))
+    dfH$end <- pmin(dfH$end, end(region))
+
+    #Plot Highlight
+    p <- p +
+      geom_rect(data = dfH, aes(xmin = start, xmax = end, ymin = -Inf, ymax = Inf), 
+        alpha=0.2, fill=highlightFill, inherit.aes = FALSE)
+
+  }
+
+  p
 
 }
 
@@ -1867,7 +2070,7 @@ plotBrowserTrack <- function(
       pal = pal
     ) + 
     facet_wrap(x~., ncol=1,scales="free_y",strip.position="right") +
-    guides(fill = FALSE, colour = FALSE) +
+    .gg_guides(fill = FALSE, colour = FALSE) +
     theme_ArchR(baseSize = baseSize,
               baseRectSize = borderWidth,
               baseLineSize = tickWidth,

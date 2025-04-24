@@ -9,8 +9,8 @@ addIterativeLSI(
   useMatrix = "TileMatrix",
   name = "IterativeLSI",
   iterations = 2,
-  clusterParams = list(resolution = c(2), sampleCells = 10000, maxClusters = 6, n.start
-    = 10),
+  clusterParams = list(resolution = c(2), sampleCells = 10000, maxClusters = 6, n.start =
+    10),
   firstSelection = "top",
   depthCol = "nFrags",
   varFeatures = 25000,
@@ -29,9 +29,10 @@ addIterativeLSI(
   totalFeatures = 5e+05,
   filterQuantile = 0.995,
   excludeChr = c(),
+  keep0lsi = FALSE,
   saveIterations = TRUE,
-  UMAPParams = list(n_neighbors = 40, min_dist = 0.4, metric = "cosine", verbose =
-    FALSE, fast_sgd = TRUE),
+  UMAPParams = list(n_neighbors = 40, min_dist = 0.4, metric = "cosine", verbose = FALSE,
+    fast_sgd = TRUE),
   nPlot = 10000,
   outDir = getOutputDirectory(ArchRProj),
   threads = getArchRThreads(),
@@ -51,9 +52,9 @@ addIterativeLSI(
 
 \item{iterations}{The number of LSI iterations to perform.}
 
-\item{clusterParams}{A list of Additional parameters to be passed to \code{addClusters()} for clustering within each iteration.
+\item{clusterParams}{A list of additional parameters to be passed to \code{addClusters()} for clustering within each iteration.
 These params can be constant across each iteration, or specified for each iteration individually. Thus each param must be of
-length == 1 or the total number of \code{iterations} - 1. PLEASE NOTE - We have updated these params to \code{resolution=2} and \code{maxClusters=6}! To use previous settings use \code{resolution=0.2} and \code{maxClusters=NULL}.}
+length == 1 or the total number of \code{iterations} - 1. If you want to use \code{scran} for clustering, you would pass this as \code{method="scran"}.}
 
 \item{firstSelection}{First iteration selection method for features to use for LSI. Either "Top" for the top accessible/average or "Var" for the top variable features.
 "Top" should be used for all scATAC-seq data (binary) while "Var" should be used for all scRNA/other-seq data types (non-binary).}
@@ -63,15 +64,15 @@ These values are used to minimize the related biases in the reduction related. F
 
 \item{varFeatures}{The number of N variable features to use for LSI. The top N features will be used based on the \code{selectionMethod}.}
 
-\item{dimsToUse}{A vector containing the dimensions from the \code{reducedDims} object to use in clustering.}
+\item{dimsToUse}{A vector containing the dimensions to use in LSI. The total dimensions used in LSI will be \code{max(dimsToUse)}. If you set this too high,
+it could impact downstream functionalities including increasing the time required to run \code{addClusters()}.}
 
 \item{LSIMethod}{A number or string indicating the order of operations in the TF-IDF normalization.
 Possible values are: 1 or "tf-logidf", 2 or "log(tf-idf)", and 3 or "logtf-logidf".}
 
 \item{scaleDims}{A boolean that indicates whether to z-score the reduced dimensions for each cell. This is useful forminimizing the contribution
 of strong biases (dominating early PCs) and lowly abundant populations. However, this may lead to stronger sample-specific biases since
-it is over-weighting latent PCs. If set to \code{NULL} this will scale the dimensions based on the value of \code{scaleDims} when the \code{reducedDims} were
-originally created during dimensionality reduction. This idea was introduced by Timothy Stuart.}
+it is over-weighting latent PCs.}
 
 \item{corCutOff}{A numeric cutoff for the correlation of each dimension to the sequencing depth. If the dimension has a correlation to
 sequencing depth that is greater than the \code{corCutOff}, it will be excluded from analysis.}
@@ -103,11 +104,13 @@ variance calculation and TF-IDF normalization.}
 \item{totalFeatures}{The number of features to consider for use in LSI after ranking the features by the total number of insertions.
 These features are the only ones used throught the variance identification and LSI. These are an equivalent when using a \code{TileMatrix} to a defined peakSet.}
 
-\item{filterQuantile}{A number \link{0,1} that indicates the quantile above which features should be removed based on insertion counts prior}
-
-\item{excludeChr}{A string of chromosomes to exclude for iterativeLSI procedure.
+\item{filterQuantile}{A number \link{0,1} that indicates the quantile above which features should be removed based on insertion counts prior
 to the first iteration of the iterative LSI paradigm. For example, if \code{filterQuantile = 0.99}, any features above the 99th percentile in
 insertion counts will be ignored for the first LSI iteration.}
+
+\item{excludeChr}{A string of chromosomes to exclude for iterativeLSI procedure.}
+
+\item{keep0lsi}{A boolean whether to keep cells with no reads in features used for LSI.}
 
 \item{saveIterations}{A boolean value indicating whether the results of each LSI iterations should be saved as compressed \code{.rds} files in
 the designated \code{outDir}.}
@@ -131,4 +134,13 @@ reproduce results downstream.}
 }
 \description{
 This function will compute an iterative LSI dimensionality reduction on an ArchRProject.
+}
+\examples{
+
+# Get Test ArchR Project
+proj <- getTestProject()
+
+# Iterative LSI
+proj <- addIterativeLSI(proj, dimsToUse = 1:5, varFeatures=1000, iterations = 2, force=TRUE)
+
 }

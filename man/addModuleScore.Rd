@@ -13,22 +13,68 @@ addModuleScore(
   nBgd = 100,
   seed = 1,
   threads = getArchRThreads(),
+  verbose = TRUE,
   logFile = createLogFile("addModuleScore")
 )
 }
 \arguments{
 \item{ArchRProj}{An \code{ArchRProject} object.}
 
-\item{seed}{A number to be used as the seed for random number generation. It is recommended to keep track of the seed used so that you can
-reproduce results downstream.}
+\item{useMatrix}{The name of the matrix to be used for calculation of the module score. See \code{getAvailableMatrices()} to view available options.}
+
+\item{name}{The name to be given to the designated module. If \code{features} is a list, this name will be prepended to the feature set names given in the list as shown below.}
+
+\item{features}{A list of feature names to be grouped into modules. For example, \code{list(BScore = c("MS4A1", "CD79A", "CD74"),    TScore = c("CD3D", "CD8A", "GZMB", "CCR7", "LEF1"))}.
+Each named element in this list will be stored as a separate module. The examples given in these parameters would yield two modules called \code{Module.Bscore} and \code{Module.Tscore}.
+If the elements of this list are not named, they will be numbered in order, i.e. \code{Module1}, \code{Module2}.}
+
+\item{nBin}{The number of bins to use to divide all features for identification of signal-matched features for background calculation}
+
+\item{nBgd}{The number of background features to use for signal normalization.}
+
+\item{seed}{A number to be used as the seed for random number generation required when sampling cells for the background set. It is recommended
+to keep track of the seed used so that you can reproduce results downstream.}
 
 \item{threads}{The number of threads to be used for parallel computing.}
+
+\item{verbose}{A boolean value that determines whether standard output includes verbose sections.}
 
 \item{logFile}{The path to a file to be used for logging ArchR output.}
 }
 \description{
-This function computes imputations weights that describe each cell as a linear combination of many cells based on a MAGIC diffusion matrix.
+This function calculates a module score from a set of features across all cells. This allows for
+grouping of multiple features together into a single quantitative measurement. Currently, this
+function only works for modules derived from the \code{GeneScoreMatrix}. Each module is added as a
+new column in \code{cellColData}
 }
-\details{
-RRR
+\examples{
+
+# Get Test ArchR Project
+proj <- getTestProject()
+
+# Add Module Score
+proj <- addModuleScore(proj, useMatrix = "GeneScoreMatrix", nBin = 25, nBgd = 25, features = list(TScore = c('CD3D', 'CD3E')))
+
+#Check
+split(proj@cellColData$Module.TScore, proj@cellColData$CellType) \%>\% lapply(mean) \%>\% unlist
+#        B         M         T 
+# -4.352769 -8.438259  9.942678 
+
+#Get T cell Features
+features <- getGenes()
+T <- features[features$symbol \%in\% c("CD3D", "CD3E")]
+B <- features[features$symbol \%in\% c("MS4A1")]
+
+# Add Module Score
+proj <- addModuleScore(proj, useMatrix = "TileMatrix", nBin = 25, nBgd = 25, features = list(TScore = T, BScore = B))
+
+#Check
+split(proj@cellColData$Module.TScore, proj@cellColData$CellType) \%>\% lapply(mean) \%>\% unlist
+#          B           M           T 
+# -0.03866667 -0.05303030  0.10306122
+
+split(proj@cellColData$Module.BScore, proj@cellColData$CellType) \%>\% lapply(mean) \%>\% unlist
+#          B           M           T 
+# 0.10000000 -0.03939394 -0.05387755 
+
 }

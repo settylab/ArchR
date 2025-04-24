@@ -16,11 +16,24 @@ getCoAccessibility(
 
 \item{corCutOff}{A numeric describing the minimum numeric peak-to-peak correlation to return.}
 
-\item{resolution}{A numeric describing the bp resolution to return loops as. This helps with overplotting of correlated regions.}
+\item{resolution}{A numeric describing the bp resolution to use when returning loops. This helps with overplotting of correlated regions.
+This only takes affect if \code{returnLoops = TRUE}.}
 
 \item{returnLoops}{A boolean indicating to return the co-accessibility signal as a \code{GRanges} "loops" object designed for use with
 the \code{ArchRBrowser()} or as an \code{ArchRBrowserTrack()}.}
 }
 \description{
 This function obtains co-accessibility data from an ArchRProject.
+}
+\examples{
+
+# Get Test ArchR Project
+proj <- getTestProject()
+
+# Add Co Accessibility
+proj <- addCoAccessibility(proj, k = 20)
+
+# Get Co Accessibility
+CoA <- getCoAccessibility(proj)
+
 }

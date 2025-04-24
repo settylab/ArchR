@@ -6,6 +6,10 @@
 #' @param ArchRProj An `ArchRProject` object.
 #' @param groupBy The name of the column in `cellColData` to use for grouping multiple cells together prior to generation of the insertion coverage file.
 #' @param useLabels A boolean value indicating whether to use sample labels to create sample-aware subgroupings during as pseudo-bulk replicate generation.
+#' @param sampleLabels The name of a column in `cellColData` to use to identify samples. In most cases, this parameter should be left as `Sample` and you
+#' should only use this parameter if you do not want to use the default sample labels stored in `cellColData$Sample`. However, if your individual Arrow
+#' files do not map to individual samples, then you should set this parameter to accurately identify your samples. This is the case in (for example)
+#' multiplexing applications where cells from different biological samples are mixed into the same reaction and demultiplexed based on a lipid barcode or genotype.
 #' @param minCells The minimum number of cells required in a given cell group to permit insertion coverage file generation.
 #' @param maxCells The maximum number of cells to use during insertion coverage file generation.
 #' @param maxFragments The maximum number of fragments per cell group to use in insertion coverage file generation. This prevents the generation
@@ -13,27 +17,39 @@
 #' @param minReplicates The minimum number of pseudo-bulk replicates to be generated.
 #' @param maxReplicates The maximum number of pseudo-bulk replicates to be generated.
 #' @param sampleRatio The fraction of the total cells that can be sampled to generate any given pseudo-bulk replicate.
+#' @param excludeChr A character vector containing the `seqnames` of the chromosomes that should be excluded from this analysis.
 #' @param kmerLength The length of the k-mer used for estimating Tn5 bias.
 #' @param threads The number of threads to be used for parallel computing.
 #' @param returnGroups A boolean value that indicates whether to return sample-guided cell-groupings without creating coverages.
 #' This is used mainly in `addReproduciblePeakSet()` when MACS2 is not being used to call peaks but rather peaks are called from a
 #' TileMatrix (`peakMethod = "Tiles"`).
 #' @param parallelParam A list of parameters to be passed for biocparallel/batchtools parallel computing.
-#' @param force A boolean value that indicates whether or not to overwrite the relevant data in the `ArchRProject` object if
+#' @param force A boolean value that indicates whether or not to skip validation and overwrite the relevant data in the `ArchRProject` object if
 #' insertion coverage / pseudo-bulk replicate information already exists.
 #' @param verbose A boolean value that determines whether standard output includes verbose sections.
 #' @param logFile The path to a file to be used for logging ArchR output.
+#' 
+#' @examples
+#'
+#' # Get Test ArchR Project
+#' proj <- getTestProject()
+#'
+#' # Add Group Coverages
+#' proj <- addGroupCoverages(proj, force = TRUE)
+#'
 #' @export
 addGroupCoverages <- function(
   ArchRProj = NULL,
   groupBy = "Clusters",
   useLabels = TRUE,
+  sampleLabels = "Sample",
   minCells = 40,
   maxCells = 500,
   maxFragments = 25*10^6,
   minReplicates = 2,
   maxReplicates = 5,
   sampleRatio = 0.8,
+  excludeChr = NULL,
   kmerLength = 6,
   maxFragmentLength=Inf,
   threads = getArchRThreads(),
@@ -47,12 +63,14 @@ addGroupCoverages <- function(
   .validInput(input = ArchRProj, name = "ArchRProj", valid = c("ArchRProj"))
   .validInput(input = groupBy, name = "groupBy", valid = c("character"))
   .validInput(input = useLabels, name = "useLabels", valid = c("boolean"))
+  .validInput(input = sampleLabels, name = "sampleLabels", valid = c("character"))
   .validInput(input = minCells, name = "minCells", valid = c("integer"))
   .validInput(input = maxCells, name = "maxCells", valid = c("integer"))
   .validInput(input = maxFragments, name = "maxFragments", valid = c("integer"))
   .validInput(input = minReplicates, name = "minReplicates", valid = c("integer"))
   .validInput(input = maxReplicates, name = "maxReplicates", valid = c("integer"))
   .validInput(input = sampleRatio, name = "sampleRatio", valid = c("numeric"))
+  .validInput(input = excludeChr, name = "excludeChr", valid = c("character", "null"))
   .validInput(input = kmerLength, name = "kmerLength", valid = c("integer"))
   .validInput(input = maxFragmentLength, name = "maxFragmentLength", valid = c("integer", "infinite"))
   .validInput(input = threads, name = "threads", valid = c("integer"))
@@ -64,6 +82,10 @@ addGroupCoverages <- function(
 
   if(minReplicates < 2){
     stop("minReplicates must be at least 2!")
+  }
+
+  if(sampleLabels %ni% colnames(ArchRProj@cellColData)) {
+    stop("sampleLabels is not a column in cellColData!")
   }
 
   tstart <- Sys.time()
@@ -98,6 +120,26 @@ addGroupCoverages <- function(
     }      
   }
 
+  #I'm 99% sure ArchR Should handle Empty Seqnames but lets leave this here since it cant hurt
+  if(!force){
+    #Check that the seqnames that will be used actually exist in the ArrowFiles
+    seqnames <- getSeqnames(ArchRProj, "Fragments")
+    if(!is.null(excludeChr)){
+      seqnames <- seqnames[paste0(seqnames) %ni% excludeChr]
+    }
+    ArrowFiles <- getArrowFiles(ArchRProj)
+    missSeqAll <- .safelapply(seq_along(ArrowFiles), function(x){
+       .validateSeqNotEmpty(ArrowFile = ArrowFiles[x], seqnames = seqnames)
+    }, threads = threads) %>% unlist %>% unique
+    if(!is.null(missSeqAll)) {
+      stop("The following seqnames do not have fragment information in one or more ArrowFiles:\n",
+        paste(missSeqAll, collapse = ","),
+        "\nYou can proceed with the analysis by ignoring these seqnames by passing them to the 'excludeChr' parameter.")
+    } 
+  }else{
+    message("Skipping validation of empty chromosomes since `force` = TRUE!")
+  }
+
   #####################################################
   #Groups 
   #####################################################
@@ -120,8 +162,8 @@ addGroupCoverages <- function(
       #  outListx <- SimpleList(LowCellGroup = cellNamesx) or NULL
       #}
       if(useLabels){
-        sampleLabelsx <- paste0(subColDat$Sample)
-      }else{
+        sampleLabelsx <- paste0(subColDat[,sampleLabels])
+      } else {
         sampleLabelsx <- NULL
       }
       outListx <- .identifyGroupsForPseudoBulk(
@@ -197,6 +239,10 @@ addGroupCoverages <- function(
   args$maxFragmentLength <- maxFragmentLength
   args$ArrowFiles <- getArrowFiles(ArchRProj)
   args$availableChr <- .availableSeqnames(getArrowFiles(ArchRProj))
+  #Filter Chromosomes
+  if(!is.null(excludeChr)){
+    args$availableChr <- args$availableChr[BiocGenerics::which(paste0(args$availableChr) %ni% excludeChr)]
+  }
   args$chromLengths <- getChromLengths(ArchRProj)
   #args$cellsInArrow <- split(rownames(getCellColData(ArchRProj)), getCellColData(ArchRProj)$Sample)
   args$cellsInArrow <-   cellsInArrow <- split(
@@ -205,18 +251,25 @@ addGroupCoverages <- function(
   )
   args$covDir <- file.path(getOutputDirectory(ArchRProj), "GroupCoverages", groupBy)
   args$parallelParam <- parallelParam
-  args$threads <- threads
   args$verbose <- verbose
   args$tstart <- tstart
   args$logFile <- logFile
   args$registryDir <- file.path(getOutputDirectory(ArchRProj), "GroupCoverages", "batchRegistry")
 
+  #H5 File Lock Check
+  h5lock <- setArchRLocking()
+  if(h5lock){
+    args$threads <- 1
+  }else{
+    if(threads > 1){
+      message("subThreading Enabled since ArchRLocking is FALSE see `addArchRLocking`")
+    }
+    args$threads <- threads
+  }
+
   #####################################################
   # Batch Apply to Create Insertion Coverage Files
   #####################################################
-
-  #Disable Hdf5 File Locking
-  h5disableFileLocking()
 
   #Batch Apply
   .logDiffTime(sprintf("Creating Coverage Files!"), tstart, addHeader = FALSE)
@@ -248,9 +301,6 @@ addGroupCoverages <- function(
   )
 
   ArchRProj@projectMetadata$GroupCoverages[[groupBy]] <- SimpleList(Params = Params, coverageMetadata = coverageMetadata)
-
-  #Enable Hdf5 File Locking
-  h5enableFileLocking()
 
   .logDiffTime(sprintf("Finished Creation of Coverage Files!"), tstart, addHeader = FALSE)
   .endLogging(logFile = logFile)
@@ -384,8 +434,8 @@ addGroupCoverages <- function(
     chrValues <- paste0("Coverage/",availableChr[k],"/Values")
     lengthRle <- length(covk@lengths)
     o <- h5createGroup(covFile, paste0("Coverage/",availableChr[k]))
-    o <- .suppressAll(h5createDataset(covFile, chrLengths, storage.mode = "integer", dims = c(lengthRle, 1), level = 0))
-    o <- .suppressAll(h5createDataset(covFile, chrValues, storage.mode = "integer", dims = c(lengthRle, 1), level = 0))
+    o <- .suppressAll(h5createDataset(covFile, chrLengths, storage.mode = "integer", dims = c(lengthRle, 1), level = getArchRH5Level()))
+    o <- .suppressAll(h5createDataset(covFile, chrValues, storage.mode = "integer", dims = c(lengthRle, 1), level = getArchRH5Level()))
     o <- h5write(obj = covk@lengths, file = covFile, name = chrLengths)
     o <- h5write(obj = covk@values, file = covFile, name = chrValues)
 
@@ -591,7 +641,6 @@ addGroupCoverages <- function(
 
   .logThis(append(args, mget(names(formals()),sys.frame(sys.nframe()))), "kmerBias-Parameters", logFile = logFile)
   
-  .requirePackage(genome)
   .requirePackage("Biostrings", source = "bioc")
   BSgenome <- eval(parse(text = genome))
   BSgenome <- validBSgenome(BSgenome)
@@ -758,7 +807,12 @@ addGroupCoverages <- function(
       if(x == 1) .logThis(iS, "InsertionSites", logFile = logFile)
       iS <- data.table(seqnames = allChr[x], start = iS - 1L, end = iS)
       if(x == 1) .logThis(iS, "InsertionSites-DT", logFile = logFile)
-      data.table::fwrite(iS, out, sep = "\t", col.names = FALSE, append = TRUE)
+      if(!any(is.na(iS$start))) {
+        data.table::fwrite(iS, out, sep = "\t", col.names = FALSE, append = TRUE)
+      } else {
+        message(paste0("Warning - No insertions found on seqnames ", allChr[x], " for coverageFile ", coverageFile,"."))
+        .logMessage(paste0("Warning - No insertions found on seqnames ", allChr[x], " for coverageFile ", coverageFile,"."), logFile = logFile)
+      }
     }, error = function(e){
       errorList <- list(
         x = x, 
