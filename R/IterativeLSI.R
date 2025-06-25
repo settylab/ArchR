@@ -19,7 +19,7 @@
 #' "Top" should be used for all scATAC-seq data (binary) while "Var" should be used for all scRNA/other-seq data types (non-binary).
 #' @param depthCol A column in the `ArchRProject` that represents the coverage (scATAC = unique fragments, scRNA = unique molecular identifiers) per cell.
 #' These values are used to minimize the related biases in the reduction related. For scATAC we recommend "nFrags" and for scRNA we recommend "Gex_nUMI".
-#' @param varFeatures The number of N variable features to use for LSI. The top N features will be used based on the `selectionMethod`.
+#' @param varFeatures The number of N variable features to use for LSI. The top N features will be used based on the `selectionMethod`. Can also pass a data.frame of features from a saved LSI iteration from `getInitialLSIFeatures()`.
 #' @param dimsToUse A vector containing the dimensions to use in LSI. The total dimensions used in LSI will be `max(dimsToUse)`. If you set this too high,
 #' it could impact downstream functionalities including increasing the time required to run `addClusters()`.
 #' @param LSIMethod A number or string indicating the order of operations in the TF-IDF normalization.
@@ -126,7 +126,7 @@ addIterativeLSI <- function(
   .validInput(input = name, name = "name", valid = c("character"))
   .validInput(input = iterations, name = "iterations", valid = c("integer"))
   .validInput(input = clusterParams, name = "clusterParams", valid = c("list"))
-  .validInput(input = varFeatures, name = "varFeatures", valid = c("integer"))
+  .validInput(input = varFeatures, name = "varFeatures", valid = c("integer", "data.frame"))
   .validInput(input = dimsToUse, name = "dimsToUse", valid = c("integer"))
   .validInput(input = LSIMethod, name = "LSIMethod", valid = c("integer", "character"))
   .validInput(input = scaleDims, name = "scaleDims", valid = c("boolean"))
@@ -152,8 +152,12 @@ addIterativeLSI <- function(
   .validInput(input = force, name = "force", valid = c("boolean"))
   .validInput(input = logFile, name = "logFile", valid = c("character"))
 
-
-  if(varFeatures < 1000){
+  if (is.data.frame(varFeatures)) {
+    if (nrow(varFeatures) < 1000) {
+      stop("Please provide more than 1000 varFeatures!")
+    }
+  }
+  else if(varFeatures < 1000){
     stop("Please provide more than 1000 varFeatures!")
   }
 
@@ -260,21 +264,38 @@ addIterativeLSI <- function(
 
     #Identify the top features to be used here
     .logDiffTime("Computing Top Features", tstart, addHeader = FALSE, verbose = verbose, logFile = logFile)
-    nFeature <- varFeatures[1]
-    rmTop <- floor((1-filterQuantile) * totalFeatures)
-    if(sum(totalAcc$rowSums > 0) > 2.25 * varFeatures){
-      topIdx <- head(order(totalAcc$rowSums, decreasing=TRUE), nFeature + rmTop)[-seq_len(rmTop)]
-    }else{
-      message("Not Enough Non-Zero Features to Filter!")
-      topIdx <- head(order(totalAcc$rowSums, decreasing=TRUE), nFeature)
+    # Check if varFeatures is a data.frame or integer
+    if (is.data.frame(varFeatures)) {
+      #n features is the number of rows in the varFeatures dataframe
+      nFeature <- nrow(varFeatures)]
+      # skip top feature filtering since features are user-provided
+      # subset totalAcc to only indicated features
+      topIdx <- head(order(totalAcc[varFeatures$idx,]$rowSums, decreasing=TRUE), nFeature)
+      # sort by rowSums
+      topFeatures <- totalAcc[sort(topIdx),]
+      # remove features with rowSums == 0
+      topFeatures <- topFeatures[topFeatures$rowSums > 0,]
     }
-    topFeatures <- totalAcc[sort(topIdx),]
-    topFeatures <- topFeatures[topFeatures$rowSums > 0,]
+    else{
+      nFeature <- varFeatures[1]
+      rmTop <- floor((1-filterQuantile) * totalFeatures)
+      if(sum(totalAcc$rowSums > 0) > 2.25 * varFeatures){
+        topIdx <- head(order(totalAcc$rowSums, decreasing=TRUE), nFeature + rmTop)[-seq_len(rmTop)]
+      }else{
+        message("Not Enough Non-Zero Features to Filter!")
+        topIdx <- head(order(totalAcc$rowSums, decreasing=TRUE), nFeature)
+      }
+      topFeatures <- totalAcc[sort(topIdx),]
+      topFeatures <- topFeatures[topFeatures$rowSums > 0,]
+    }
 
     gc()
 
   }else if(tolower(firstSelection) %in% c("var", "variable")){
-
+    # Check if varFeatures is a data.frame or integer
+    if (is.data.frame(varFeatures)) {
+      stop("Cannot use a dataframe to pass varFeatures when using variable selection for first iteration! Set firstSelection = Top!")
+    }
     if(binarize){
       stop("Please do not binarize data if using variable selection for first iteration! Set binarize = FALSE!")
     }
@@ -428,7 +449,7 @@ addIterativeLSI <- function(
 
     #Jth iteration
     j <- j + 1
-
+    
     #########################
     # Identify Features for LSI Iteration
     #########################
@@ -1050,7 +1071,10 @@ addIterativeLSI <- function(
       )
 
       .logDiffTime("Computing Variable Features", tstart, addHeader = FALSE, verbose = verbose, logFile = logFile)
-      if(length(varFeatures) > 1){
+      if (is.data.frame(varFeatures)){
+        nFeature <- nrow(varFeatures)
+      }
+      else if (length(varFeatures) > 1){
         nFeature <- varFeatures[j]
       }else{
         nFeature <- varFeatures
@@ -1459,3 +1483,44 @@ addIterativeLSI <- function(
 }
 
 
+#########################################################################################
+# Helper function to get variable features from the first iteration of LSI.
+#########################################################################################
+
+#' Get peaks used to initialize iterative LSI dimensionality reduction with the provided features.
+#'
+#' @param ArchRProj An `ArchRProject` object where `runIterativeLSI()` has been run with `saveIterations = TRUE`.
+#' @param file_name The name of the RDS file containing the first iteration LSI object. Default is "Save-LSI-Iteration-1.rds".
+#' @return A `DataFrame` containing the features used to initialize the iterative LSI. Adds feature ends to tiles for conversion to GRanges.
+#' 
+#' @examples
+#'
+#' # Get Test ArchR Project
+#' proj <- getTestProject()
+#'
+#' # Get Iterative LSI Features
+#' varFeatures <- getInitialLSIFeatures(ArchRProj = proj)
+#'
+#' @export
+getInitialLSIFeatures <- function(
+  ArchRProj,
+  iterationName = "Save-LSI-Iteration-1.rds"
+) {
+    # load RDS from 1st iteration of LSI for desired ArchR proj
+    # must run IterativeLSI with `saveIterations`=TRUE to get this file
+    projDir <- ArchRProj/proj@projectMetadata$outputDirectory
+    iteration <- tryCatch({
+                    readRDS(file.path(projDir, "IterativeLSI", iterationName))
+                  }, error = function(e) {
+                    stop(sprintf("No saved iteration 1 at %s/IterativeLSI/%s. Run `runIterativeLSI()` with saveIterations=TRUE!. Error:", projDir, iterationName), conditionMessage(e))
+                  })
+    # extract features
+    df <- iteration$LSI$LSIFeatures
+    # if TileMatrix: Add feature ends for conversion to GRanges
+    if (iteration$LSI$useMatrix == "TileMatrix"){
+      df$end <- df$start + iteration$LSI$tileSize
+    }
+    # return DataFrame which can be passed to 
+    return(df)
+
+  }
