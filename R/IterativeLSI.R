@@ -267,7 +267,7 @@ addIterativeLSI <- function(
     # Check if varFeatures is a data.frame or integer
     if (is.data.frame(varFeatures)) {
       #n features is the number of rows in the varFeatures dataframe
-      nFeature <- nrow(varFeatures)]
+      nFeature <- nrow(varFeatures)
       # skip top feature filtering since features are user-provided
       # subset totalAcc to only indicated features
       topIdx <- head(order(totalAcc[varFeatures$idx,]$rowSums, decreasing=TRUE), nFeature)
