@@ -170,7 +170,7 @@ getFragmentsFromArrow <- function(
   out = "GRanges", 
   cellNames = NULL, 
   method = "fast",
-  maxFragSize = Inf
+  maxFragmentLength = Inf
   ){
 
   if(is.null(chr)){
@@ -244,7 +244,7 @@ getFragmentsFromArrow <- function(
   if(tolower(out)=="granges"){
     if(length(output) > 0){
       output <- GRanges(seqnames = chr, ranges(output), RG = mcols(output)$RG)
-      output <- output[width(output) <= maxFragSize]
+      output <- output[width(output) <= maxFragmentLength]
     }else{
       output <- IRanges(start = 1, end = 1)
       mcols(output)$RG <- c("tmp")
