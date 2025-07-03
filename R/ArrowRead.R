@@ -92,7 +92,7 @@ getFragmentsFromArrow <- function(
   ArrowFile = NULL, 
   chr = NULL, 
   cellNames = NULL, 
-  maxFragmentLength = Inf,
+  maxFragSize = Inf,
   verbose = TRUE,
   logFile = createLogFile("getFragmentsFromArrow")
   ){
@@ -100,7 +100,7 @@ getFragmentsFromArrow <- function(
   .validInput(input = ArrowFile, name = "ArrowFile", valid = "character")
   .validInput(input = chr, name = "chr", valid = c("character","null"))
   .validInput(input = cellNames, name = "cellNames", valid = c("character","null"))
-  .validInput(input = maxFragmentLength, name = "maxFragmentLength", valid = c("integer", "infinite"))
+  .validInput(input = maxFragSize, name = "maxFragSize", valid = c("integer", "infinite"))
   .validInput(input = verbose, name = "verbose", valid = c("boolean"))
 
   tstart <- Sys.time()
@@ -125,7 +125,7 @@ getFragmentsFromArrow <- function(
       out = "GRanges", 
       cellNames = cellNames, 
       method = "fast",
-      maxFragmentLength = maxFragmentLength
+      maxFragSize = maxFragSize
     )
   })
 
@@ -170,7 +170,7 @@ getFragmentsFromArrow <- function(
   out = "GRanges", 
   cellNames = NULL, 
   method = "fast",
-  maxFragmentLength = Inf
+  maxFragSize = Inf
   ){
 
   if(is.null(chr)){
@@ -244,7 +244,7 @@ getFragmentsFromArrow <- function(
   if(tolower(out)=="granges"){
     if(length(output) > 0){
       output <- GRanges(seqnames = chr, ranges(output), RG = mcols(output)$RG)
-      output <- output[width(output) <= maxFragmentLength]
+      output <- output[width(output) <= maxFragSize]
     }else{
       output <- IRanges(start = 1, end = 1)
       mcols(output)$RG <- c("tmp")
@@ -254,7 +254,7 @@ getFragmentsFromArrow <- function(
   }
 
   # Filter by fragment width 
-  output <- output[width(output) <= maxFragmentLength]
+  #output <- output[width(output) <= maxFragSize]
 
   return(output)
 }

@@ -38,7 +38,7 @@ addFeatureMatrix <- function(
   parallelParam = NULL,
   force = TRUE,
   logFile = createLogFile("addFeatureMatrix"),
-  maxFragmentLength = Inf
+  maxFragSize = Inf
   ){
 
   .validInput(input = input, name = "input", valid = c("ArchRProj", "character"))
@@ -51,7 +51,7 @@ addFeatureMatrix <- function(
   .validInput(input = parallelParam, name = "parallelParam", valid = c("parallelparam", "null"))
   .validInput(input = force, name = "force", valid = c("boolean"))
   .validInput(input = logFile, name = "logFile", valid = c("character"))
-  .validInput(input = maxFragmentLength, name = "maxFragmentLength", valid = c("integer", "infinite"))
+  .validInput(input = maxFragSize, name = "maxFragSize", valid = c("integer", "infinite"))
 
   matrixName <- .isProtectedArray(matrixName)
 
@@ -135,7 +135,7 @@ addFeatureMatrix <- function(
 addPeakMatrix <- function(
   ArchRProj = NULL,
   ceiling = 4, 
-  maxFragmentLength=Inf,
+  maxFragSize=Inf,
   binarize = FALSE,
   verbose = TRUE,
   threads = getArchRThreads(),
@@ -146,7 +146,7 @@ addPeakMatrix <- function(
 
   .validInput(input = ArchRProj, name = "ArchRProj", valid = c("ArchRProj"))
   .validInput(input = ceiling, name = "ceiling", valid = c("numeric"))
-  .validInput(input = maxFragmentLength, name = "maxFragmentLength", valid = c("integer", "infinite"))
+  .validInput(input = maxFragSize, name = "maxFragSize", valid = c("integer", "infinite"))
   .validInput(input = binarize, name = "binarize", valid = c("boolean"))
   .validInput(input = verbose, name = "verbose", valid = c("boolean"))
   .validInput(input = threads, name = "threads", valid = c("integer"))
@@ -204,7 +204,7 @@ addPeakMatrix <- function(
   allCells = NULL,
   matrixName = "PeakMatrix", 
   ceiling = 4, 
-  maxFragmentLength=Inf,
+  maxFragSize=Inf,
   binarize = FALSE,
   tstart = NULL,
   subThreads = 1,
@@ -299,7 +299,7 @@ addPeakMatrix <- function(
 
       #Read in Fragments
       fragments <- .getFragsFromArrow(ArrowFile, chr = chr, 
-                      out = "IRanges", cellNames = cellNames, maxFragmentLength = maxFragmentLength)
+                      out = "IRanges", cellNames = cellNames, maxFragSize = maxFragSize)
       tabFrags <- table(mcols(fragments)$RG)
 
       #Count Left Insertion

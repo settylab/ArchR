@@ -778,7 +778,7 @@ createArrowFiles <- function(
     countFrags <- tryCatch({
 
       #Read in frags
-      fragx <- .getFragsFromArrow(ArrowFile = ArrowFile, chr = chrArrow[x], out = "IRanges", maxFragmentLength = Inf, cellNames = cellNames)
+      fragx <- .getFragsFromArrow(ArrowFile = ArrowFile, chr = chrArrow[x], out = "IRanges", cellNames = cellNames)
 
       if(length(fragx) > 0){
 
@@ -1961,7 +1961,7 @@ createArrowFiles <- function(
 
           #Read in Fragments!
           fragments <- lapply(seq_along(chunkNamex), function(i){
-            .getFragsFromArrow(tmpFile, maxFragmentLength = Inf, chr = chunkNamex[i], out = "IRanges")
+            .getFragsFromArrow(tmpFile, chr = chunkNamex[i], out = "IRanges")
           }) %>% Reduce("c", .)
           mcols(fragments)$RG@values <- stringr::str_split(mcols(fragments)$RG@values, pattern = "#", simplify=TRUE)[,2]
 
@@ -2049,7 +2049,7 @@ createArrowFiles <- function(
 
           #Read in Fragments!
           fragments <- lapply(seq_along(chunkNamex), function(i){
-            .getFragsFromArrow(tmpFile, maxFragmentLength = Inf, chr = chunkNamex[i], out = "IRanges")
+            .getFragsFromArrow(tmpFile, chr = chunkNamex[i], out = "IRanges")
           }) %>% Reduce("c", .)
           mcols(fragments)$RG@values <- stringr::str_split(mcols(fragments)$RG@values, pattern = "#", simplify=TRUE)[,2]
 
