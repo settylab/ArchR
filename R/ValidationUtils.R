@@ -33,7 +33,7 @@
     }
     else if(vi == "integer" | vi == "wholenumber"){
 
-      if(all(is.numeric(input))){
+      if(all(is.numeric(input) & is.finite(input))){
         #https://stackoverflow.com/questions/3476782/check-if-the-number-is-integer
         cv <- min(abs(c(input%%1, input%%1-1)), na.rm = TRUE) < .Machine$double.eps^0.5
       }else{
