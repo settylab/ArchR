@@ -219,7 +219,15 @@ addDoubletScores <- function(
   }, error = function(e){
     .logError(e, fn = "addIterativeLSI", info = prefix, errorList = list(ArrowFile = ArrowFile), logFile = logFile)
   })
-  proj <- res[[1]]
+proj <- if (isS4(res)) {
+  res
+} else if (is.list(res) && length(res) > 0) {
+  res[[1]]
+} else if (length(res) == 0) {
+  stop("List of length 0 returned from addIterativeLSI()")
+} else {
+  stop("Unexpected return type from addIterativeLSI()")
+}
 
   #################################################
   # 3. Get LSI Partial Matrix For Simulation
