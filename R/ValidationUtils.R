@@ -26,7 +26,12 @@
 
     vi <- valid[i]
 
-    if(vi == "integer" | vi == "wholenumber"){
+    if(vi == "infinite"){
+
+      cv <- is.infinite(input)
+
+    }
+    else if(vi == "integer" | vi == "wholenumber"){
 
       if(all(is.numeric(input))){
         #https://stackoverflow.com/questions/3476782/check-if-the-number-is-integer
@@ -46,10 +51,6 @@
     }else if(vi == "numeric"){
 
       cv <- is.numeric(input)
-
-    }else if(vi == "infinite"){
-
-      cv <- is.infinite(input)
 
     }else if(vi == "vector"){
 
