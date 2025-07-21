@@ -126,7 +126,7 @@ addIterativeLSI <- function(
   .validInput(input = name, name = "name", valid = c("character"))
   .validInput(input = iterations, name = "iterations", valid = c("integer"))
   .validInput(input = clusterParams, name = "clusterParams", valid = c("list"))
-  .validInput(input = varFeatures, name = "varFeatures", valid = c("integer", "data.frame"))
+  .validInput(input = varFeatures, name = "varFeatures", valid = c("data.frame", "integer"))
   .validInput(input = dimsToUse, name = "dimsToUse", valid = c("integer"))
   .validInput(input = LSIMethod, name = "LSIMethod", valid = c("integer", "character"))
   .validInput(input = scaleDims, name = "scaleDims", valid = c("boolean"))
@@ -1508,7 +1508,7 @@ getInitialLSIFeatures <- function(
 ) {
     # load RDS from 1st iteration of LSI for desired ArchR proj
     # must run IterativeLSI with `saveIterations`=TRUE to get this file
-    projDir <- ArchRProj/proj@projectMetadata$outputDirectory
+    projDir <- ArchRProj@projectMetadata$outputDirectory
     iteration <- tryCatch({
                     readRDS(file.path(projDir, "IterativeLSI", iterationName))
                   }, error = function(e) {

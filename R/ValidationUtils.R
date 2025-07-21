@@ -27,18 +27,22 @@
     vi <- valid[i]
 
     if(vi == "infinite"){
-
-      cv <- is.infinite(input)
-
+      tryCatch({
+        cv <- is.infinite(input)
+      }, error = function(e) {
+        cv <- FALSE
+      })
     }
     else if(vi == "integer" | vi == "wholenumber"){
-
-      if(all(is.numeric(input) & is.finite(input))){
-        #https://stackoverflow.com/questions/3476782/check-if-the-number-is-integer
-        cv <- min(abs(c(input%%1, input%%1-1)), na.rm = TRUE) < .Machine$double.eps^0.5
-      }else{
+      tryCatch({
+          if(all(is.numeric(input) & is.finite(input))){
+            #https://stackoverflow.com/questions/3476782/check-if-the-number-is-integer
+            cv <- min(abs(c(input%%1, input%%1-1)), na.rm = TRUE) < .Machine$double.eps^0.5
+          }else{
+            cv <- FALSE
+          }, error = function(e) {
         cv <- FALSE
-      }
+      })
 
     }else if(vi == "null"){
 
