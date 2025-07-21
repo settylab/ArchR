@@ -265,7 +265,7 @@ addIterativeLSI <- function(
     #Identify the top features to be used here
     .logDiffTime("Computing Top Features", tstart, addHeader = FALSE, verbose = verbose, logFile = logFile)
     # Check if varFeatures is a data.frame or integer
-    if (is.data.frame(varFeatures)) {
+    if (is.data.frame(varFeatures) | is(varFeatures, "DataFrame")) {
       #n features is the number of rows in the varFeatures dataframe
       nFeature <- nrow(varFeatures)
       # skip top feature filtering since features are user-provided
@@ -293,7 +293,7 @@ addIterativeLSI <- function(
 
   }else if(tolower(firstSelection) %in% c("var", "variable")){
     # Check if varFeatures is a data.frame or integer
-    if (is.data.frame(varFeatures)) {
+    if (is.data.frame(varFeatures) | is(varFeatures, "DataFrame")) {
       stop("Cannot use a dataframe to pass varFeatures when using variable selection for first iteration! Set firstSelection = Top!")
     }
     if(binarize){
@@ -1071,7 +1071,7 @@ addIterativeLSI <- function(
       )
 
       .logDiffTime("Computing Variable Features", tstart, addHeader = FALSE, verbose = verbose, logFile = logFile)
-      if (is.data.frame(varFeatures)){
+      if (is.data.frame(varFeatures) | is (varFeatures, "DataFrame")){
         nFeature <- nrow(varFeatures)
       }
       else if (length(varFeatures) > 1){
