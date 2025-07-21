@@ -151,8 +151,8 @@ addIterativeLSI <- function(
   .validInput(input = verbose, name = "verbose", valid = c("boolean"))
   .validInput(input = force, name = "force", valid = c("boolean"))
   .validInput(input = logFile, name = "logFile", valid = c("character"))
-
-  if (is.data.frame(varFeatures)) {
+    
+  if (is.data.frame(varFeatures) | is(varFeatures, "DataFrame"))) {
     if (nrow(varFeatures) < 1000) {
       stop("Please provide more than 1000 varFeatures!")
     }
