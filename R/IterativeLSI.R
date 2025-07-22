@@ -335,10 +335,16 @@ addIterativeLSI <- function(
     stop("firstSelect method must be Top or Var/Variable!")
 
   }
-
-  if(nrow(topFeatures) < varFeatures){
-    stop(sprintf("Not Enough Features Found in data (%s)!", nrow(topFeatures)))
-  }
+      
+  if (is.data.frame(varFeatures) | is(varFeatures, "DataFrame")) {
+      #n features is the number of rows in the varFeatures dataframe
+      if(nrow(topFeatures) < nrow(varFeatures)){
+        stop(sprintf("Not Enough Features Found in data (%s)!", nrow(topFeatures)))
+      }
+  }else if(nrow(topFeatures) < varFeatures){
+        stop(sprintf("Not Enough Features Found in data (%s)!", nrow(topFeatures)))
+      }
+  
 
   cellDepth <- tryCatch({
       df <- getCellColData(ArchRProj = ArchRProj, select = depthCol)
