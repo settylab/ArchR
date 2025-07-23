@@ -341,7 +341,7 @@ addIterativeLSI <- function(
       if(nrow(topFeatures) < nrow(varFeatures)){
         stop(sprintf("Not Enough Features Found in data (%s)!", nrow(topFeatures)))
       }
-  }else if(nrow(topFeatures) < varFeatures){
+  }else if(is.numeric(varFeatures) & nrow(topFeatures) < varFeatures){
         stop(sprintf("Not Enough Features Found in data (%s)!", nrow(topFeatures)))
       }
   
@@ -1518,7 +1518,7 @@ getInitialLSIFeatures <- function(
     iteration <- tryCatch({
                     readRDS(file.path(projDir, "IterativeLSI", iterationName))
                   }, error = function(e) {
-                    stop(sprintf("No saved iteration 1 at %s/IterativeLSI/%s. Run `runIterativeLSI()` with saveIterations=TRUE!. Error:", projDir, iterationName), conditionMessage(e))
+                    stop(sprintf("No saved iteration 1 at %s/IterativeLSI/%s. Run `runIterativeLSI()` with saveIterations=TRUE!.", projDir, iterationName))
                   })
     # extract features
     df <- iteration$LSI$LSIFeatures

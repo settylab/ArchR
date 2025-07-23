@@ -22,6 +22,65 @@ proj <- ArchRProject(arrows, outputDirectory = "Test")
 #LSI
 proj <- addIterativeLSI(proj, dimsToUse = 1:5, varFeatures=1000, iterations = 2, force=TRUE)
 
+features <- getInitialLSIFeatures(proj)
+# Test getInitialLSIFeature
+test_that("getInitialLSIFeatures returns expected output", {
+  
+  expect_s4_class(features, "DataFrame")
+  expect_true(all(c("seqnames", "start", "idx", "rowSums") %in% names(features)))
+  expect_gt(nrow(features), 100)
+
+  # Only check 'end' if the matrix is TileMatrix
+  rds_path <- file.path(proj@projectMetadata$outputDirectory, "IterativeLSI", "Save-LSI-Iteration-1.rds")
+  iteration <- readRDS(rds_path)
+  if (iteration$LSI$useMatrix == "TileMatrix") {
+    expect_true("end" %in% names(features))
+    expect_equal(features$end, features$start + iteration$LSI$tileSize)
+  }
+  expect_error(
+    getInitialLSIFeatures(proj, iterationName = "nonexistent.rds"),
+    sprintf("No saved iteration 1 at %s. Run `runIterativeLSI()` with saveIterations=TRUE!.", rds_path))
+  )
+})
+
+test_that("getInitialLSIFeatures output works in addIterativeLSI", {
+
+  proj2 <- ArchR::addIterativeLSI(
+    ArchRProj = proj,
+    useMatrix = "TileMatrix",
+    name = "IterativeLSI_test_from_features",
+    varFeatures = features
+  )
+
+  expect_s4_class(proj2, "ArchRProject")
+  expect_true("IterativeLSI_test_from_features" %in% names(ArchR::getReducedDims(proj2)))
+  assign("proj2", proj2, envir = .GlobalEnv)
+})
+
+
+test_that("IterativeLSI with getInitialLSIFeatures reproduces original LSI embedding", {
+  skip_if_not(exists("proj2"), "proj2 not available from previous test")
+  # Get original IterativeLSI result
+  original_lsi <- ArchR::getReducedDims(proj, reduction = "IterativeLSI")
+
+  # Get new LSI result
+  reproduced_lsi <- ArchR::getReducedDims(proj2, reduction = "IterativeLSI_from_features")
+
+  # Ensure the same cells are in both matrices
+  common_cells <- intersect(rownames(original_lsi), rownames(reproduced_lsi))
+  original_lsi <- original_lsi[common_cells, , drop = FALSE]
+  reproduced_lsi <- reproduced_lsi[common_cells, , drop = FALSE]
+
+  # Compare matrices: must be numerically equal within tolerance
+  expect_equal(
+    reproduced_lsi,
+    original_lsi,
+    tolerance = 1e-6,
+    scale = 1,
+    info = "Recomputed LSI should match original"
+  )
+})
+
 #Clusters
 proj <- addClusters(proj, force=TRUE, dimsToUse = 1:5)
 
