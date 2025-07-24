@@ -37,21 +37,22 @@ test_that("getInitialLSIFeatures returns expected output", {
     expect_true("end" %in% names(features))
     expect_equal(features$end, features$start + iteration$LSI$tileSize)
   }
-  expect_error(
-    getInitialLSIFeatures(proj, iterationName = "nonexistent.rds"),
-    sprintf("No saved iteration 1 at %s. Run `runIterativeLSI()` with saveIterations=TRUE!.", rds_path))
+})
+
+test_that("getInitialLSIFeatures returns error if file is nonexistent"){
+    expect_error(getInitialLSIFeatures(proj, iterationName = "nonexistent.rds"),
+    sprintf("No saved iteration 1 at %s/IterativeLSI/%s. Run `runIterativeLSI()` with saveIterations=TRUE!.", proj@projectMetadata$outputDirectory, rds_path)
   )
+    
 })
 
 test_that("getInitialLSIFeatures output works in addIterativeLSI", {
-
   proj2 <- ArchR::addIterativeLSI(
     ArchRProj = proj,
     useMatrix = "TileMatrix",
     name = "IterativeLSI_test_from_features",
     varFeatures = features
   )
-
   expect_s4_class(proj2, "ArchRProject")
   expect_true("IterativeLSI_test_from_features" %in% names(ArchR::getReducedDims(proj2)))
   assign("proj2", proj2, envir = .GlobalEnv)
